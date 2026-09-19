@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Power Play Hockey</string>
+
+    <string name="menu_play_now">Play Now</string>
+    <string name="menu_wifi_2p">Multiplayer</string>
+    <string name="menu_how_to_play">How to Play</string>
+    <string name="menu_exit">Exit</string>
+    <string name="menu_tagline">5-on-5 arcade ice hockey. Three periods. One winner.</string>
+
+    <string name="settings_title">Match Setup</string>
+    <string name="settings_your_team">Your Team</string>
+    <string name="settings_opponent">Opponent</string>
+    <string name="settings_period_length">Period Length</string>
+    <string name="settings_difficulty">Difficulty</string>
+    <string name="settings_sound">Sound FX</string>
+    <string name="settings_music">Music</string>
+    <string name="audio_title">Volume</string>
+    <string name="audio_sfx">Sound FX</string>
+    <string name="audio_music">Music</string>
+    <string name="audio_off">Off</string>
+    <string name="settings_start">Drop the Puck</string>
+
+    <string name="difficulty_easy">Rookie</string>
+    <string name="difficulty_medium">Pro</string>
+    <string name="difficulty_hard">All-Star</string>
+
+    <string name="period_1">1 min</string>
+    <string name="period_2">2 min</string>
+    <string name="period_3">3 min</string>
+    <string name="period_5">5 min</string>
+
+    <string name="wifi_title">Multiplayer</string>
+    <string name="mp_title">Multiplayer</string>
+    <string name="mp_connection">Connect via</string>
+    <string name="mp_wifi">WiFi</string>
+    <string name="mp_bluetooth">Bluetooth</string>
+    <string name="wifi_hint_join">Both tablets must be on the same WiFi network.</string>
+    <string name="bt_hint_host">Pair the two tablets in Bluetooth settings first, or tap Make Discoverable and scan from the other tablet.</string>
+    <string name="bt_hint_join">Tap a paired tablet, or scan for one that has been made discoverable.</string>
+    <string name="bt_make_discoverable">Make Discoverable</string>
+    <string name="bt_scan">Scan for Devices</string>
+    <string name="bt_paired">Paired and nearby tablets</string>
+    <string name="bt_scanning">Scanning…</string>
+    <string name="bt_none_found">No tablets found yet. Pair one in Bluetooth settings or scan.</string>
+    <string name="bt_hosting_status">Hosting over Bluetooth as \"%1$s\"… waiting for an opponent</string>
+    <string name="bt_host_failed">Could not start Bluetooth hosting. Check that Bluetooth is on.</string>
+    <string name="bt_scan_failed">Could not start scanning.</string>
+    <string name="bt_unavailable">Bluetooth is not available on this device.</string>
+    <string name="bt_enable">Turn on Bluetooth to continue.</string>
+    <string name="bt_permission">Bluetooth permission is needed to play over Bluetooth.</string>
+    <string name="connect_failed">Connection failed: %1$s</string>
+    <string name="wifi_host">Host Game</string>
+    <string name="wifi_join">Join Game</string>
+    <string name="wifi_host_team">Host Team</string>
+    <string name="wifi_guest_team">Guest Team</string>
+    <string name="wifi_hosting_status">Hosting… waiting for an opponent to join</string>
+    <string name="wifi_searching_status">Searching for games on your WiFi…</string>
+    <string name="wifi_connecting_status">Connecting…</string>
+    <string name="wifi_manual_ip_hint">Or enter the host\'s IP address</string>
+    <string name="wifi_connect_button">Connect</string>
+    <string name="wifi_cancel">Cancel</string>
+    <string name="wifi_no_games_found">No games found yet…</string>
+
+    <string name="game_paused">Paused</string>
+    <string name="game_resume">Resume</string>
+    <string name="game_restart">Restart</string>
+    <string name="game_quit">Quit</string>
+    <string name="game_over">Final</string>
+    <string name="rematch">Rematch</string>
+    <string name="you_win">You Win!</string>
+    <string name="you_lose">You Lose</string>
+    <string name="opponent_disconnected">Opponent disconnected</string>
+
+    <string name="htp_title">How to Play</string>
+    <string name="htp_skate">SKATE</string>
+    <string name="htp_skate_body">Touch anywhere on the left half of the screen and drag. Your skater follows the stick in that direction. Let go to glide.</string>
+    <string name="htp_shoot">SHOOT</string>
+    <string name="htp_shoot_body">Hold to wind up, release to fire. Push the stick up or down while you shoot to aim for a corner.
+Without the puck: poke-check the puck carrier.</string>
+    <string name="htp_pass">PASS</string>
+    <string name="htp_pass_body">Tap to pass to the teammate you are pointing at. Control switches to the receiver.
+Without the puck: switch to the skater closest to the puck.</string>
+    <string name="htp_hit">HIT</string>
+    <string name="htp_hit_body">Tap to lunge into a body check. Knock the carrier down and the puck comes loose.</string>
+    <string name="htp_rules">GAME FLOW</string>
+    <string name="htp_rules_body">Three periods on the clock, faceoffs after every whistle, goalies freeze pucks. Tied after three? Sudden-death overtime.</string>
+    <string name="htp_tip">The yellow ring marks the skater you control.</string>
+    <string name="htp_done">Got it</string>
+    <string name="controls_help">Left side: drag anywhere to skate.\n\nSHOOT: hold to wind up, release to fire. Push the stick up or down while shooting to pick a corner. Without the puck it pokes at the carrier.\n\nPASS: sends the puck to the teammate in the direction you are pushing. Without the puck it switches to the skater nearest the puck.\n\nHIT: lunge into a body check and knock the carrier off the puck.\n\nThree periods, sudden-death overtime if tied.</string>
+</resources>

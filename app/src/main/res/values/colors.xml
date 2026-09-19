@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="rink_ice">#0F2740</color>
+    <color name="rink_ice_light">#173A5E</color>
+    <color name="rink_line_red">#D8323C</color>
+    <color name="rink_line_blue">#2E86FF</color>
+    <color name="rink_wall">#03111F</color>
+    <color name="puck_color">#111111</color>
+    <color name="mallet_player">#2E86FF</color>
+    <color name="mallet_opponent">#D8323C</color>
+    <color name="mallet_highlight">#FFFFFF</color>
+
+    <color name="bg_dark">#0A1622</color>
+    <color name="bg_dark_2">#132A40</color>
+    <color name="accent">#2E86FF</color>
+    <color name="accent_red">#D8323C</color>
+    <color name="text_primary">#F4F7FA</color>
+    <color name="text_secondary">#9FB3C8</color>
+    <color name="button_bg">#173A5E</color>
+</resources>
