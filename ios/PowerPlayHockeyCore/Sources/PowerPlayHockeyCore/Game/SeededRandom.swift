@@ -24,4 +24,9 @@ final class SeededRandom {
     func nextBool() -> Bool {
         nextUInt64() & 1 == 0
     }
+
+    /// Uniform integer in [0, bound).
+    func nextInt(_ bound: Int) -> Int {
+        Int(nextUInt64() % UInt64(max(bound, 1)))
+    }
 }
