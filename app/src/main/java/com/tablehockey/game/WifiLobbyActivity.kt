@@ -32,6 +32,8 @@ import com.tablehockey.game.network.GuestLink
 import com.tablehockey.game.network.HOST_PORT
 import com.tablehockey.game.network.HostLink
 import com.tablehockey.game.network.NetworkSession
+import com.tablehockey.game.network.RelayGuest
+import com.tablehockey.game.network.RelayHost
 import org.json.JSONObject
 
 /**
@@ -41,7 +43,7 @@ import org.json.JSONObject
  */
 class WifiLobbyActivity : AppCompatActivity() {
 
-    private enum class Connection { WIFI, BLUETOOTH }
+    private enum class Connection { WIFI, BLUETOOTH, INTERNET }
     private enum class Pending { NONE, HOST, JOIN, SCAN }
 
     private lateinit var chooserLayout: LinearLayout
@@ -58,6 +60,9 @@ class WifiLobbyActivity : AppCompatActivity() {
     private lateinit var spinnerGuestTeam: Spinner
     private lateinit var editHostIp: EditText
     private lateinit var manualIpRow: LinearLayout
+    private lateinit var hostRoomCodeText: TextView
+    private lateinit var manualCodeRow: LinearLayout
+    private lateinit var editRoomCode: EditText
     private lateinit var btnDiscoverable: Button
     private lateinit var btnScan: Button
     private lateinit var btnStartHosting: Button
@@ -67,12 +72,18 @@ class WifiLobbyActivity : AppCompatActivity() {
     private var btHost: BluetoothHost? = null
     private var btGuest: BluetoothGuest? = null
     private var btScanner: BluetoothScanner? = null
+    private var relayHost: RelayHost? = null
+    private var relayGuest: RelayGuest? = null
     private val btFound = LinkedHashMap<String, BluetoothDevice>()
     private var handedOff = false
     private var pending = Pending.NONE
 
     private val connection: Connection
-        get() = if (radioConnection.checkedRadioButtonId == R.id.connBluetooth) Connection.BLUETOOTH else Connection.WIFI
+        get() = when (radioConnection.checkedRadioButtonId) {
+            R.id.connBluetooth -> Connection.BLUETOOTH
+            R.id.connInternet -> Connection.INTERNET
+            else -> Connection.WIFI
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -92,6 +103,9 @@ class WifiLobbyActivity : AppCompatActivity() {
         spinnerGuestTeam = findViewById(R.id.spinnerGuestTeam)
         editHostIp = findViewById(R.id.editHostIp)
         manualIpRow = findViewById(R.id.manualIpRow)
+        hostRoomCodeText = findViewById(R.id.hostRoomCodeText)
+        manualCodeRow = findViewById(R.id.manualCodeRow)
+        editRoomCode = findViewById(R.id.editRoomCode)
         btnDiscoverable = findViewById(R.id.btnDiscoverable)
         btnScan = findViewById(R.id.btnScan)
         btnStartHosting = findViewById(R.id.btnStartHosting)
@@ -129,6 +143,7 @@ class WifiLobbyActivity : AppCompatActivity() {
             MusicManager.click(this)
             stopEverything()
             hostStatusText.visibility = View.GONE
+            hostRoomCodeText.visibility = View.GONE
             btnStartHosting.isEnabled = true
             hostLayout.visibility = View.GONE
             chooserLayout.visibility = View.VISIBLE
@@ -143,16 +158,28 @@ class WifiLobbyActivity : AppCompatActivity() {
             val ip = editHostIp.text.toString().trim()
             if (ip.isNotEmpty()) connectWifi(ip, HOST_PORT)
         }
+        findViewById<Button>(R.id.btnConnectCode).setOnClickListener {
+            val code = editRoomCode.text.toString().trim()
+            if (code.isNotEmpty()) connectRelay(code)
+        }
         applyConnectionUi()
     }
 
     private fun applyConnectionUi() {
-        val bt = connection == Connection.BLUETOOTH
+        val c = connection
+        val bt = c == Connection.BLUETOOTH
         btnDiscoverable.visibility = if (bt) View.VISIBLE else View.GONE
         hostHintText.visibility = if (bt) View.VISIBLE else View.GONE
         btnScan.visibility = if (bt) View.VISIBLE else View.GONE
-        manualIpRow.visibility = if (bt) View.GONE else View.VISIBLE
-        joinHintText.text = getString(if (bt) R.string.bt_hint_join else R.string.wifi_hint_join)
+        manualIpRow.visibility = if (c == Connection.WIFI) View.VISIBLE else View.GONE
+        manualCodeRow.visibility = if (c == Connection.INTERNET) View.VISIBLE else View.GONE
+        joinHintText.text = getString(
+            when (c) {
+                Connection.BLUETOOTH -> R.string.bt_hint_join
+                Connection.INTERNET -> R.string.internet_hint_join
+                Connection.WIFI -> R.string.wifi_hint_join
+            }
+        )
     }
 
     private fun matchConfig(mode: GameMode): MatchConfig {
@@ -178,7 +205,24 @@ class WifiLobbyActivity : AppCompatActivity() {
     // ------------------------------------------------------------------ host
 
     private fun startHostingFlow() {
-        if (connection == Connection.BLUETOOTH) startBluetoothHost() else startWifiHost()
+        when (connection) {
+            Connection.BLUETOOTH -> startBluetoothHost()
+            Connection.INTERNET -> startInternetHost()
+            Connection.WIFI -> startWifiHost()
+        }
+    }
+
+    private fun startInternetHost() {
+        val config = matchConfig(GameMode.WIFI_HOST)
+        val h = RelayHost()
+        relayHost = h
+        h.listener = hostListener(h, config)
+        h.connect()
+        hostRoomCodeText.visibility = View.VISIBLE
+        hostRoomCodeText.text = h.code()
+        hostStatusText.visibility = View.VISIBLE
+        hostStatusText.text = getString(R.string.internet_hosting_status)
+        btnStartHosting.isEnabled = false
     }
 
     private fun startWifiHost() {
@@ -235,7 +279,19 @@ class WifiLobbyActivity : AppCompatActivity() {
 
     private fun startJoinFlow() {
         discoveredListContainer.removeAllViews()
-        if (connection == Connection.BLUETOOTH) startBluetoothJoin() else startWifiJoin()
+        when (connection) {
+            Connection.BLUETOOTH -> startBluetoothJoin()
+            Connection.INTERNET -> joinStatusText.text = ""
+            Connection.WIFI -> startWifiJoin()
+        }
+    }
+
+    private fun connectRelay(code: String) {
+        joinStatusText.text = getString(R.string.wifi_connecting_status)
+        val g = RelayGuest()
+        relayGuest = g
+        g.listener = guestListener(g)
+        g.connect(code)
     }
 
     private fun startWifiJoin() {
@@ -412,6 +468,8 @@ class WifiLobbyActivity : AppCompatActivity() {
         btHost?.stop(); btHost = null
         btGuest?.disconnect(); btGuest = null
         btScanner?.stop(); btScanner = null
+        relayHost?.stop(); relayHost = null
+        relayGuest?.disconnect(); relayGuest = null
     }
 
     override fun onStart() {

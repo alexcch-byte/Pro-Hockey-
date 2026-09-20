@@ -12,6 +12,15 @@ const val HOST_PORT = 8943
 const val SERVICE_TYPE = "_powerplayhockey._tcp."
 
 /**
+ * Base URL of the Cloudflare Worker relay (see relay-server/) used for
+ * internet play. Replace with your own deployed Worker's URL -- `wrangler
+ * deploy` prints it, something like "https://powerplay-hockey-relay.
+ * <your-subdomain>.workers.dev". Internet hosting/joining won't work with
+ * this placeholder still in place.
+ */
+const val RELAY_BASE_URL = "https://powerplay-hockey-relay.example.workers.dev"
+
+/**
  * Line-delimited JSON protocol.
  *
  *  host -> client  "cfg"  match set-up (teams, period length)

@@ -47,6 +47,7 @@
                     android:orientation="horizontal">
                     <RadioButton android:id="@+id/connWifi" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/mp_wifi" android:textColor="@color/text_primary" android:checked="true" />
                     <RadioButton android:id="@+id/connBluetooth" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:text="@string/mp_bluetooth" android:textColor="@color/text_primary" />
+                    <RadioButton android:id="@+id/connInternet" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:text="@string/mp_internet" android:textColor="@color/text_primary" />
                 </RadioGroup>
             </LinearLayout>
         </LinearLayout>
@@ -131,6 +132,20 @@
                 android:text="@string/bt_hint_host"
                 android:textColor="@color/text_secondary"
                 android:textSize="14sp"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/hostRoomCodeText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/bg_card"
+                android:padding="14dp"
+                android:gravity="center"
+                android:textColor="@color/text_primary"
+                android:textSize="34sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.2"
                 android:visibility="gone" />
 
             <LinearLayout
@@ -225,6 +240,46 @@
 
                     <Button
                         android:id="@+id/btnConnectIp"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/wifi_connect_button" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:id="@+id/manualCodeRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="14dp"
+                android:visibility="gone">
+
+                <TextView
+                    style="@style/SectionLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/internet_room_code_hint" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="6dp">
+
+                    <EditText
+                        android:id="@+id/editRoomCode"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:inputType="textCapCharacters"
+                        android:maxLength="8"
+                        android:hint="ABCDE"
+                        android:textColor="@color/text_primary"
+                        android:textColorHint="@color/text_secondary" />
+
+                    <Button
+                        android:id="@+id/btnConnectCode"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="@string/wifi_connect_button" />

@@ -35,7 +35,11 @@
     <string name="mp_connection">Connect via</string>
     <string name="mp_wifi">WiFi</string>
     <string name="mp_bluetooth">Bluetooth</string>
+    <string name="mp_internet">Internet</string>
     <string name="wifi_hint_join">Both tablets must be on the same WiFi network.</string>
+    <string name="internet_hint_join">Ask the host for their room code and enter it below.</string>
+    <string name="internet_room_code_hint">Enter the host\'s room code</string>
+    <string name="internet_hosting_status">Share this code with your opponent</string>
     <string name="bt_hint_host">Pair the two tablets in Bluetooth settings first, or tap Make Discoverable and scan from the other tablet.</string>
     <string name="bt_hint_join">Tap a paired tablet, or scan for one that has been made discoverable.</string>
     <string name="bt_make_discoverable">Make Discoverable</string>

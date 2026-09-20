@@ -2,7 +2,6 @@ package com.tablehockey.game.game
 
 import android.content.Context
 import android.graphics.Canvas
-import android.os.Build
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.SurfaceHolder
@@ -56,6 +55,12 @@ class GameView @JvmOverloads constructor(
     private var networkClient: GuestLink? = null
     private var netAccumulator = 0f
     private val clientEvents = ArrayList<GameEvent>()
+    // The client and host each race independently from the lobby into this
+    // screen after the socket connects; if the client's real "cfg" listener
+    // isn't attached yet when the host's one-shot send arrives, it's dropped
+    // and the client never builds a World. Resend a few times as insurance.
+    private var cfgResendsLeft = 4
+    private var cfgResendTimer = 0.4f
 
     @Volatile private var running = false
     @Volatile private var paused = false
@@ -143,12 +148,18 @@ class GameView @JvmOverloads constructor(
 
     override fun surfaceCreated(holder: SurfaceHolder) {
         running = true
-        gameThread = Thread({ loop() }, "GameLoop").also { it.start() }
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         renderer.resize(width, height)
         controls.layout(width, height)
+        // surfaceCreated() can fire before the surface is actually usable on
+        // some OEM builds; surfaceChanged() (which always carries real
+        // dimensions) is the more reliable "ready to render" signal, so the
+        // loop starts here instead, once, rather than in surfaceCreated().
+        if (gameThread == null) {
+            gameThread = Thread({ loop() }, "GameLoop").also { it.start() }
+        }
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
@@ -223,12 +234,27 @@ class GameView @JvmOverloads constructor(
             }
 
             val w = world
+            // The surface can briefly be not-yet-attached (or mid-teardown) around
+            // activity/window transitions; submitting a hardware-canvas frame to it
+            // anyway is a native, uncatchable abort ("drawRenderNode called on a
+            // context with no surface!"), not a Java exception, so it must be
+            // avoided rather than caught. Skip the frame instead.
+            if (!holder.surface.isValid) {
+                try { Thread.sleep(16) } catch (_: InterruptedException) {}
+                continue
+            }
             if (w != null && configured) {
                 if (!paused) update(w, dt)
+                // lockHardwareCanvas() routes through ThreadedRenderer/RenderThread,
+                // which on this device can hit a native (uncatchable) abort when
+                // something else briefly contends for the same SurfaceView's buffer
+                // queue -- observed reliably during the WiFi join flow. The plain
+                // software canvas skips that pipeline entirely; this is simple 2D
+                // drawing, not GPU-bound, so the perf cost should be small.
                 val canvas: Canvas? = try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) holder.lockHardwareCanvas() else holder.lockCanvas()
+                    holder.lockCanvas()
                 } catch (_: Exception) {
-                    try { holder.lockCanvas() } catch (_: Exception) { null }
+                    null
                 }
                 if (canvas != null) {
                     try {
@@ -283,6 +309,14 @@ class GameView @JvmOverloads constructor(
         handleEvents(w.events)
 
         if (config.mode == GameMode.WIFI_HOST) {
+            if (cfgResendsLeft > 0) {
+                cfgResendTimer -= dt
+                if (cfgResendTimer <= 0f) {
+                    cfgResendTimer = 0.4f
+                    cfgResendsLeft--
+                    networkServer?.send(NetCodec.configJson(config.homeTeam, config.awayTeam, config.periodLengthSeconds))
+                }
+            }
             netAccumulator += dt
             val hz = networkServer?.stateHz ?: 30
             if (netAccumulator >= 1f / hz || w.events.isNotEmpty()) {
