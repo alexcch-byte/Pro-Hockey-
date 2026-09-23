@@ -48,9 +48,16 @@ adb: `C:/Users/strid/AppData/Local/Android/Sdk/platform-tools/adb.exe`
   - `AIController`: skater formations/chasing/carrier decisions and goalie positioning.
   - `PhysicsEngine`: skater movement/collisions, puck glide, boards, posts, nets. Goals use a swept
     test (must cross the goal line from the front between the posts); carried pucks are kept out of nets.
-  - `Renderer` + `Camera`: hardware-canvas drawing in world units (rink, crowd bitmap, detailed
+  - `Renderer` + `Camera`: drawing in world units (rink, crowd bitmap, detailed
     skaters/goalies, snow spray particles, puck) then HUD/controls in screen space. Avoid
     allocations in draw paths; paints and paths are reused.
+  - Players are drawn from per-team sprites (legs per stride frame, arms+stick rotated for the swing,
+    torso; goalie per stance) pre-rendered at screen resolution from the vector art. On the Fire GPU
+    the cost is per draw call (~15-20 us each), so keep per-frame draw calls low; the vector path is
+    only used while a shot is charging (the shaft flexes).
+  - `GameView` draws single-device matches with `lockHardwareCanvas()` and network matches with the
+    software `lockCanvas()` (a RenderThread abort was seen during the WiFi join flow). The fps log
+    line splits frame time into update / lock / record / post; a large "post" means GPU-bound.
   - `TouchControls`: floating joystick (left half) + SHOOT / PASS / HIT buttons. Without the puck,
     SHOOT = poke check and PASS = switch to nearest skater; SHOOT charges while held.
   - `GameView`: game thread, host vs client update paths, camera follow, sound/music hooks.
@@ -92,5 +99,6 @@ script after editing a sound, then rebuild. No ffmpeg here, so music ships as 22
 
 ## Status
 
-- Verified on the Fire HD 8: single player, all menus, audio, 55-60 fps.
+- Verified on the Fire HD 8: single player, all menus, audio, 55-59 fps (2026-09-23, GPU canvas + sprites;
+  was 15-18 fps with the software canvas and vector players).
 - Not verified: WiFi and Bluetooth matches between two real devices (only one tablet available).

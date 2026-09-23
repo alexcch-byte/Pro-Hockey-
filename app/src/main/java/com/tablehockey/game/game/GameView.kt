@@ -227,10 +227,25 @@ class GameView @JvmOverloads constructor(
 
     // ----------------------------------------------------------------- loop
 
+    /**
+     * Single-device matches draw through the GPU (lockHardwareCanvas); on a
+     * Fire HD 8 the software canvas managed only 15-18 fps. Network matches
+     * keep the software canvas: see the note in loop() about the RenderThread
+     * abort seen during the WiFi join flow.
+     */
+    private val gpuCanvas: Boolean
+        get() = configured && (config.mode == GameMode.SINGLE_PLAYER || config.mode == GameMode.SHOOTOUT) &&
+            !gpuCanvasFailed
+    @Volatile private var gpuCanvasFailed = false
+
     private fun loop() {
         var lastTime = System.nanoTime()
         var fpsFrames = 0
         var fpsWindowStart = lastTime
+        var updateNs = 0L
+        var drawNs = 0L
+        var lockNs = 0L
+        var recordNs = 0L
         while (running) {
             val now = System.nanoTime()
             var dt = (now - lastTime) / 1_000_000_000f
@@ -239,9 +254,19 @@ class GameView @JvmOverloads constructor(
             fpsFrames++
             if (now - fpsWindowStart >= 5_000_000_000L) {
                 val fps = fpsFrames * 1_000_000_000.0 / (now - fpsWindowStart)
-                android.util.Log.d("PowerPlay", String.format("fps=%.1f", fps))
+                // draw = lock the surface + record the frame + post it (post waits for
+                // the GPU/compositor, so a big post means the GPU side is the bottleneck).
+                val ms = 1e6 * fpsFrames
+                android.util.Log.d("PowerPlay", String.format(
+                    "fps=%.1f update=%.1fms draw=%.1fms (lock %.1f, record %.1f, post %.1f; %s canvas)", fps,
+                    updateNs / ms, drawNs / ms, lockNs / ms, recordNs / ms, (drawNs - lockNs - recordNs) / ms,
+                    if (gpuCanvas) "gpu" else "cpu"))
                 fpsFrames = 0
                 fpsWindowStart = now
+                updateNs = 0L
+                drawNs = 0L
+                lockNs = 0L
+                recordNs = 0L
             }
 
             val w = world
@@ -255,25 +280,38 @@ class GameView @JvmOverloads constructor(
                 continue
             }
             if (w != null && configured) {
+                val t0 = System.nanoTime()
                 if (!paused) update(w, dt)
+                val t1 = System.nanoTime()
+                updateNs += t1 - t0
                 // lockHardwareCanvas() routes through ThreadedRenderer/RenderThread,
                 // which on this device can hit a native (uncatchable) abort when
                 // something else briefly contends for the same SurfaceView's buffer
                 // queue -- observed reliably during the WiFi join flow. The plain
-                // software canvas skips that pipeline entirely; this is simple 2D
-                // drawing, not GPU-bound, so the perf cost should be small.
+                // software canvas skips that pipeline entirely, so network matches
+                // use it. It is much slower on the Fire tablets, though, so
+                // single-device matches keep the GPU.
+                val gpu = gpuCanvas
                 val canvas: Canvas? = try {
-                    holder.lockCanvas()
-                } catch (_: Exception) {
+                    if (gpu) holder.lockHardwareCanvas() else holder.lockCanvas()
+                } catch (e: Exception) {
+                    if (gpu) {
+                        android.util.Log.w("PowerPlay", "GPU canvas unavailable, using software", e)
+                        gpuCanvasFailed = true
+                    }
                     null
                 }
+                val t2 = System.nanoTime()
                 if (canvas != null) {
                     try {
                         synchronized(w) { renderer.draw(canvas, w, localTeam, controls, dt) }
                     } finally {
+                        recordNs += System.nanoTime() - t2
                         try { holder.unlockCanvasAndPost(canvas) } catch (_: Exception) {}
                     }
                 }
+                lockNs += t2 - t1
+                drawNs += System.nanoTime() - t1
             } else {
                 val canvas = try { holder.lockCanvas() } catch (_: Exception) { null }
                 if (canvas != null) {

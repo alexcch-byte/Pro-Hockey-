@@ -11,11 +11,14 @@ import android.graphics.Shader
 import android.graphics.Typeface
 import com.tablehockey.game.model.ArenaType
 import com.tablehockey.game.model.TeamInfo
+import kotlin.math.PI
+import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.random.Random
 
@@ -32,6 +35,7 @@ class Renderer(private val density: Float) {
         const val BODY_SCALE = 1.3f
         const val GOALIE_SCALE = 1.2f
         private const val MAX_SPRAY = 240
+        private const val STRIDE_FRAMES = 16
     }
 
     private val rinkRect = RectF(-Rink.HALF_L, -Rink.HALF_W, Rink.HALF_L, Rink.HALF_W)
@@ -211,6 +215,32 @@ class Renderer(private val density: Float) {
     private val goalieShader = arrayOfNulls<RadialGradient>(2)
     private val helmetColor = IntArray(2)
     private val gloveColor = IntArray(2)
+
+    // ----- player sprites
+    // Drawn as vectors, each player is ~80 small draw calls, and on the Fire
+    // tablets' GPU that per-call overhead alone cost ~20 ms a frame. So each
+    // team's players are pre-rendered at screen resolution in three layers and
+    // drawn as three bitmaps: legs (one per stride frame), arms + stick (at rest,
+    // rotated live for the shot swing; normal and poke reach) and torso + helmet.
+    // Goalies get one bitmap per stance. Sprites are rebuilt when the zoom or the
+    // teams change.
+    private class TeamSprites {
+        var info: TeamInfo? = null
+        val legs = arrayOfNulls<Bitmap>(STRIDE_FRAMES)
+        val arms = arrayOfNulls<Bitmap>(2)
+        var torso: Bitmap? = null
+        val goalie = arrayOfNulls<Bitmap>(8)
+
+        fun clear() {
+            for (a in arrayOf(legs, arms, goalie)) for (i in a.indices) { a[i]?.recycle(); a[i] = null }
+            torso?.recycle()
+            torso = null
+        }
+    }
+    private val sprites = arrayOf(TeamSprites(), TeamSprites())
+    private var spriteScale = 0f
+    private val spritePaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+    private val spriteDst = RectF()
 
     // ----- snow spray particles + per-skater motion memory
     private val sprayX = FloatArray(MAX_SPRAY)
@@ -439,6 +469,18 @@ class Renderer(private val density: Float) {
     }
 
     private fun ensureTeamShaders(world: World) {
+        // Sprites are rendered at screen resolution, so a new zoom level or a
+        // different club means rendering them again. (Checked here, on the game
+        // thread, rather than in resize(), so a bitmap is never recycled mid-draw.)
+        val zoomChanged = camera.scale != spriteScale
+        spriteScale = camera.scale
+        for (t in 0..1) {
+            val sp = sprites[t]
+            if (zoomChanged || sp.info !== world.teams[t].info) {
+                sp.clear()
+                sp.info = world.teams[t].info
+            }
+        }
         for (t in 0..1) {
             val primary = world.teams[t].info.primary
             if (shaderColor[t] == primary && skaterShader[t] != null) continue
@@ -969,8 +1011,9 @@ class Renderer(private val density: Float) {
             canvas.rotate(90f)
             canvas.scale(1.45f, 0.72f)
         }
-        if (s.isGoalie) drawGoalieBody(canvas, s, info, goalieShader[s.team]!!)
-        else drawSkaterBody(canvas, s, info, skaterShader[s.team]!!, if (controlled) charge else 0f)
+        if (s.isGoalie) drawGoalieSprite(canvas, s, info)
+        else if (controlled && charge > 0.05f) drawSkaterBody(canvas, s, info, skaterShader[s.team]!!, charge)
+        else drawSkaterSprite(canvas, s, info)
         canvas.restore()
 
         if (world.isOnFire(s.team)) {
@@ -1058,13 +1101,107 @@ class Renderer(private val density: Float) {
         canvas.drawRoundRect(tmpRect, size * 0.18f, size * 0.18f, gloveOutline)
     }
 
+    /** Stick swing on shots and passes: the arms and stick rotate back, then through. */
+    private fun swingKick(s: Skater): Float {
+        if (s.swingTimer <= 0f) return 0f
+        val t = 1f - s.swingTimer / 0.35f
+        return if (t < 0.4f) -55f * (t / 0.4f) else -55f + 110f * ((t - 0.4f) / 0.6f)
+    }
+
+    /** Renders a sprite at screen resolution; [draw] paints in world feet around the origin. */
+    private fun renderSprite(halfFt: Float, draw: (Canvas) -> Unit): Bitmap {
+        val size = ceil(2f * halfFt * camera.scale).toInt() + 2
+        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        c.translate(size / 2f, size / 2f)
+        c.scale(camera.scale, camera.scale)
+        draw(c)
+        return bmp
+    }
+
+    /** Draws a sprite centred on the current origin, in world units. */
+    private fun drawSprite(canvas: Canvas, bmp: Bitmap) {
+        val half = bmp.width / (2f * camera.scale)
+        spriteDst.set(-half, -half, half, half)
+        canvas.drawBitmap(bmp, null, spriteDst, spritePaint)
+    }
+
+    /** A skater as three sprites, layered like [drawSkaterBody]: legs, swinging arms + stick, torso. */
+    private fun drawSkaterSprite(canvas: Canvas, s: Skater, info: TeamInfo) {
+        val sp = sprites[s.team]
+        val r = s.radius
+        val frame = if (s.speed > 2f) {
+            val f = (s.stride * 1.3f / (2f * PI.toFloat()) * STRIDE_FRAMES).roundToInt() % STRIDE_FRAMES
+            if (f < 0) f + STRIDE_FRAMES else f
+        } else 0
+        val legs = sp.legs[frame] ?: renderSprite(1.6f * r * BODY_SCALE) { c ->
+            c.scale(BODY_SCALE, BODY_SCALE)
+            drawSkaterLegs(c, r, sin(frame * 2f * PI.toFloat() / STRIDE_FRAMES), info)
+        }.also { sp.legs[frame] = it }
+
+        val poke = if (s.pokeTimer > 0f) 1 else 0
+        val arms = sp.arms[poke] ?: run {
+            val bladeLocal = (r + if (poke == 1) Skater.POKE_REACH else Skater.STICK_REACH) / BODY_SCALE
+            renderSprite(max(bladeLocal + 0.9f, 1.6f * r) * BODY_SCALE) { c ->
+                c.scale(BODY_SCALE, BODY_SCALE)
+                drawSkaterArms(c, r, bladeLocal, 0f, s.team, info)
+            }
+        }.also { sp.arms[poke] = it }
+
+        val torso = sp.torso ?: renderSprite(1.6f * r * BODY_SCALE) { c ->
+            c.scale(BODY_SCALE, BODY_SCALE)
+            drawSkaterTorso(c, r, s.team, info, skaterShader[s.team]!!)
+        }.also { sp.torso = it }
+
+        drawSprite(canvas, legs)
+        val kick = swingKick(s)
+        if (kick != 0f) {
+            canvas.save()
+            canvas.rotate(kick)
+            drawSprite(canvas, arms)
+            canvas.restore()
+        } else {
+            drawSprite(canvas, arms)
+        }
+        drawSprite(canvas, torso)
+    }
+
+    private fun drawGoalieSprite(canvas: Canvas, g: Skater, info: TeamInfo) {
+        val stance = when {
+            g.goalieAction == GoalieAction.PAD_STACK -> if (g.padStackDir >= 0f) 2 else 3
+            g.goalieAction == GoalieAction.BUTTERFLY || g.butterfly -> 1
+            else -> 0
+        }
+        val poking = g.pokeTimer > 0f
+        val idx = stance * 2 + if (poking) 1 else 0
+        val sp = sprites[g.team]
+        val bmp = sp.goalie[idx] ?: run {
+            val r = g.radius
+            val bladeLocal = (r + if (poking) Skater.POKE_REACH else Skater.STICK_REACH) / GOALIE_SCALE
+            // Far enough for the stick in any stance, including laid flat in a pad stack.
+            val reach = hypot(bladeLocal + 0.9f + (if (poking) 1.6f else 0f), 1.5f * r + 0.4f)
+            renderSprite(reach * GOALIE_SCALE) { c ->
+                drawGoalieBody(c, r, stance, poking, info, goalieShader[g.team]!!)
+            }
+        }.also { sp.goalie[idx] = it }
+        drawSprite(canvas, bmp)
+    }
+
+    /** Full vector drawing of a skater (used while a shot is charging, when the shaft flexes). */
     private fun drawSkaterBody(canvas: Canvas, s: Skater, info: TeamInfo, shader: Shader, charge: Float) {
         val r = s.radius
         canvas.scale(BODY_SCALE, BODY_SCALE)
-        val moving = s.speed > 2f
-        val stride = if (moving) sin(s.stride * 1.3f) else 0f
-        val bladeLocal = s.stickReach / BODY_SCALE
+        val stride = if (s.speed > 2f) sin(s.stride * 1.3f) else 0f
+        drawSkaterLegs(canvas, r, stride, info)
+        canvas.save()
+        canvas.rotate(swingKick(s))
+        drawSkaterArms(canvas, r, s.stickReach / BODY_SCALE, charge, s.team, info)
+        canvas.restore()
+        drawSkaterTorso(canvas, r, s.team, info, shader)
+    }
 
+    /** Skates and pants, in body-local units (the caller applies BODY_SCALE). */
+    private fun drawSkaterLegs(canvas: Canvas, r: Float, stride: Float, info: TeamInfo) {
         // Skates: contoured boot, white TUUK holder, stainless runner with glints
         for (side in intArrayOf(-1, 1)) {
             val phase = stride * side
@@ -1108,15 +1245,13 @@ class Renderer(private val density: Float) {
             pantsStripe.strokeWidth = 0.11f * r
             canvas.drawLine(-0.92f * r, py + side * 0.25f * r, -0.32f * r, py + side * 0.25f * r, pantsStripe)
         }
+    }
 
-        // Stick and arms: swings on shot/pass, flexes shaft on shot wind-up
-        var kick = 0f
-        if (s.swingTimer > 0f) {
-            val t = 1f - s.swingTimer / 0.35f
-            kick = if (t < 0.4f) -55f * (t / 0.4f) else -55f + 110f * ((t - 0.4f) / 0.6f)
-        }
-        canvas.save()
-        canvas.rotate(kick)
+    /**
+     * Arms, stick and gloves at rest (the caller rotates them for the swing).
+     * The shaft bows under [charge] while a shot is wound up.
+     */
+    private fun drawSkaterArms(canvas: Canvas, r: Float, bladeLocal: Float, charge: Float, team: Int, info: TeamInfo) {
         val bX = 0.2f * r
         val bY = -0.95f * r
         val hX = bladeLocal - 0.5f
@@ -1186,10 +1321,12 @@ class Renderer(private val density: Float) {
         canvas.drawCircle(bladeLocal + 0.1f, 0.22f, 0.12f * r, puckScuffPaint)
 
         // Segmented gloves on the shaft
-        drawGlove(canvas, tX, tY, 0.4f * r, s.team, info)
-        drawGlove(canvas, uX, uY, 0.4f * r, s.team, info)
-        canvas.restore()
+        drawGlove(canvas, tX, tY, 0.4f * r, team, info)
+        drawGlove(canvas, uX, uY, 0.4f * r, team, info)
+    }
 
+    /** Jersey, shoulders and helmet. */
+    private fun drawSkaterTorso(canvas: Canvas, r: Float, team: Int, info: TeamInfo, shader: Shader) {
         // Torso with shaded jersey, shoulder pads, and yoke stripes
         torsoPaint.shader = shader
         tmpRect.set(-0.95f * r, -1.1f * r, 0.8f * r, 1.1f * r)
@@ -1204,7 +1341,7 @@ class Renderer(private val density: Float) {
         canvas.drawLine(-0.74f * r, -0.82f * r, -0.74f * r, 0.82f * r, yokeThin)
 
         // Pro sculpted helmet with vents, ear guards, visor gleam, and chin strap
-        helmetPaint.color = helmetColor[s.team]
+        helmetPaint.color = helmetColor[team]
         val hx = 0.28f * r
         val hr = 0.58f * r
 
@@ -1233,14 +1370,17 @@ class Renderer(private val density: Float) {
         canvas.drawCircle(hx + 0.15f * r, -0.2f * r, 0.15f * r, glossPaint)
     }
 
-    private fun drawGoalieBody(canvas: Canvas, g: Skater, info: TeamInfo, shader: Shader) {
-        val r = g.radius
+    /**
+     * A goalie in one of four stances (0 upright, 1 butterfly, 2 and 3 pad stack
+     * to either side), optionally poke-checking. Applies GOALIE_SCALE itself.
+     */
+    private fun drawGoalieBody(canvas: Canvas, r: Float, stance: Int, poking: Boolean, info: TeamInfo, shader: Shader) {
         canvas.scale(GOALIE_SCALE, GOALIE_SCALE)
-        val bladeLocal = g.stickReach / GOALIE_SCALE
+        val bladeLocal = (r + if (poking) Skater.POKE_REACH else Skater.STICK_REACH) / GOALIE_SCALE
         padStripe.color = info.primary
 
-        if (g.goalieAction == GoalieAction.PAD_STACK) {
-            canvas.rotate(g.padStackDir * 65f)
+        if (stance >= 2) {
+            canvas.rotate(if (stance == 2) 65f else -65f)
             for (pIdx in 0..1) {
                 val pY = if (pIdx == 0) -1.0f * r else -0.1f * r
                 // Pad shell
@@ -1287,7 +1427,7 @@ class Renderer(private val density: Float) {
         }
 
         // Leg pads: flared butterfly with sliding plates or upright 3-roll stance
-        if (g.goalieAction == GoalieAction.BUTTERFLY || g.butterfly) {
+        if (stance == 1) {
             canvas.save()
             canvas.translate(-0.1f * r, -0.4f * r)
             canvas.rotate(-38f)
@@ -1352,7 +1492,7 @@ class Renderer(private val density: Float) {
         }
 
         // Goalie stick: wide reinforced paddle tapering down to wide curved blade
-        val pokeDist = if (g.pokeTimer > 0f) 1.6f else 0f
+        val pokeDist = if (poking) 1.6f else 0f
         shaftDark.strokeWidth = 0.44f * r
         canvas.drawLine(0.45f * r + pokeDist, 1.0f * r, bladeLocal - 0.9f + pokeDist, 0.85f, shaftDark)
         shaftCore.strokeWidth = 0.18f * r
@@ -1760,5 +1900,6 @@ class Renderer(private val density: Float) {
         crowd = null
         winterLandscape?.recycle()
         winterLandscape = null
+        for (sp in sprites) sp.clear()
     }
 }
