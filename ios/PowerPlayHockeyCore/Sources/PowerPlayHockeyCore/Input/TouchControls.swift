@@ -67,6 +67,12 @@ final class TouchControls: TouchControlsState {
     private var hitPointer: AnyHashable?
     private var shootDownTime: Double = 0
 
+    // Automatic Deke detection on rapid joystick movement / flick
+    private var prevJoyTime: Double = 0
+    private var prevJoyMx: Float = 0
+    private var prevJoyMy: Float = 0
+    private var dekeCooldownUntil: Double = 0
+
     private var screenW: CGFloat = 1
     private var screenH: CGFloat = 1
     private var topExclusion: CGFloat = 0
@@ -115,6 +121,7 @@ final class TouchControls: TouchControlsState {
         lock.unlock()
         joyPointer = nil; shootPointer = nil; passPointer = nil; hitPointer = nil
         joyActive = false; shootDown = false; passDown = false; hitDown = false
+        prevJoyTime = 0; prevJoyMx = 0; prevJoyMy = 0
     }
 
     // ------------------------------------------------------------- pointers
@@ -146,6 +153,9 @@ final class TouchControls: TouchControlsState {
             joyAnchorY = y
             joyKnobX = x
             joyKnobY = y
+            prevJoyTime = now()
+            prevJoyMx = 0
+            prevJoyMy = 0
             lock.lock(); input.moveX = 0; input.moveY = 0; lock.unlock()
         }
     }
@@ -165,8 +175,8 @@ final class TouchControls: TouchControlsState {
         }
         joyKnobX = joyAnchorX + dx
         joyKnobY = joyAnchorY + dy
-        var mx = dx / joyRadius
-        var my = dy / joyRadius
+        var mx = Float(dx / joyRadius)
+        var my = Float(dy / joyRadius)
         let mag = hypot(mx, my)
         if mag < 0.12 {
             mx = 0; my = 0
@@ -176,7 +186,34 @@ final class TouchControls: TouchControlsState {
             mx = mx / mag * scaled
             my = my / mag * scaled
         }
-        lock.lock(); input.moveX = Float(mx); input.moveY = Float(my); lock.unlock()
+
+        // Detect rapid flick / sharp direction change for automatic deke move
+        let currentTime = now()
+        let dt = currentTime - prevJoyTime
+        if dt >= 0.025 && dt <= 0.220 {
+            let prevMag = hypot(prevJoyMx, prevJoyMy)
+            let curMag = hypot(mx, my)
+            if curMag > 0.42 && currentTime > dekeCooldownUntil {
+                let deltaDist = hypot(mx - prevJoyMx, my - prevJoyMy)
+                let stickSpeed = deltaDist / Float(dt)
+                let dot: Float = (prevMag > 0.28 && curMag > 0.28)
+                    ? (mx * prevJoyMx + my * prevJoyMy) / (curMag * prevMag)
+                    : 1.0
+                let isSharpCut = (dot < 0.2 && prevMag > 0.38 && dt <= 0.180)
+                let isFastFlick = (stickSpeed > 7.5 && curMag > 0.5)
+                if isSharpCut || isFastFlick {
+                    lock.lock(); input.deke = true; lock.unlock()
+                    dekeCooldownUntil = currentTime + 0.5
+                }
+            }
+        }
+        if dt >= 0.025 {
+            prevJoyMx = mx
+            prevJoyMy = my
+            prevJoyTime = currentTime
+        }
+
+        lock.lock(); input.moveX = mx; input.moveY = my; lock.unlock()
     }
 
     func pointerUp(_ id: AnyHashable) {
@@ -187,6 +224,9 @@ final class TouchControls: TouchControlsState {
         if joyPointer != nil && id == joyPointer! {
             joyPointer = nil
             joyActive = false
+            prevJoyTime = 0
+            prevJoyMx = 0
+            prevJoyMy = 0
             lock.lock(); input.moveX = 0; input.moveY = 0; lock.unlock()
         } else if shootPointer != nil && id == shootPointer! {
             shootPointer = nil

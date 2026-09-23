@@ -27,7 +27,38 @@ enum Prefs {
     }
 
     static func soundEnabled() -> Bool { sfxVolume() > 0 }
-    static func musicEnabled() -> Bool { musicVolume() > 0 }
+    private static let keyArena = "arena_type"
+    private static let keyTournament = "tournament_state"
+
+    static func arenaType() -> ArenaType {
+        guard let raw = UserDefaults.standard.string(forKey: keyArena),
+              let type = ArenaType(rawValue: raw) else {
+            return .indoor
+        }
+        return type
+    }
+
+    static func setArenaType(_ type: ArenaType) {
+        UserDefaults.standard.set(type.rawValue, forKey: keyArena)
+    }
+
+    static func saveTournament(_ state: TournamentState) {
+        if let data = try? JSONEncoder().encode(state) {
+            UserDefaults.standard.set(data, forKey: keyTournament)
+        }
+    }
+
+    static func getTournament() -> TournamentState? {
+        guard let data = UserDefaults.standard.data(forKey: keyTournament),
+              let state = try? JSONDecoder().decode(TournamentState.self, from: data) else {
+            return nil
+        }
+        return state
+    }
+
+    static func clearTournament() {
+        UserDefaults.standard.removeObject(forKey: keyTournament)
+    }
 
     private static func clamp(_ v: Int) -> Int { min(max(v, 0), 100) }
 }

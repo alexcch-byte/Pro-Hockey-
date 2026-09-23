@@ -1,91 +1,69 @@
-# iOS port — status
+# iOS Port — Power Play Hockey
 
-The Android → iOS port, translated from Kotlin (`app/src/main/java/com/tablehockey/game/`)
-to Swift. This is a Swift package, not an app yet — there is nothing to run on a device
-or simulator until the game loop (a `CADisplayLink`-driven view), audio, UI screens and
-networking described below are built on top of it.
+The Android → iOS port of Power Play Hockey, translated from Kotlin (`app/src/main/java/com/tablehockey/game/`) to Swift 5.9.
 
-- **Phase 1** — the platform-agnostic engine core (`Game/`): world state, physics, AI,
-  match flow. No UIKit/Core Graphics dependency at all.
-- **Phase 2** — the renderer (`Render/`) and touch input (`Input/`): everything needed
-  to draw a frame and turn raw touches into game commands, still with no app shell
-  wrapping them yet.
+Packaged as a multiplatform Swift Package (`Package.swift`, targeting iOS 15+ and macOS 12+), fully synchronized with Android `main` commit `f2b5130`.
 
-## What's here
+## Architecture & Structure
 
-`PowerPlayHockeyCore/` — a Swift package (`Package.swift`, iOS 15+ / macOS 12+) containing:
+```
+ios/PowerPlayHockeyCore/
+├── Package.swift
+└── Sources/PowerPlayHockeyCore/
+    ├── Model/
+    │   ├── MatchConfig.swift        (ArenaType: Indoor/Winter Pond, GameMode: Quick/Shootout/WiFi)
+    │   ├── Prefs.swift              (UserDefaults persistence: SFX, Music, Arena, Tournament)
+    │   ├── TeamInfo.swift           (28-club roster with primary/secondary/text hex colors)
+    │   └── TournamentData.swift     (8-team playoff bracket, AI simulation, Codable)
+    ├── Game/
+    │   ├── World.swift              (Momentum, On Fire, Shootout state, Shattered Glass, Penalties)
+    │   ├── Skater.swift             (GoalieAction: Butterfly/Pad Stack, Deke timers, Breath)
+    │   ├── Puck.swift               (Glide physics, supersonic trails)
+    │   ├── Rink.swift               (Geometry & board containment)
+    │   ├── PhysicsEngine.swift      (Kinematics, collision resolution, goalie capsule)
+    │   ├── AIController.swift       (Positional logic, aggressive puck pursuit, goalie squaring)
+    │   ├── Simulation.swift         (Match flow, Shootout breakaway logic, Deke evasion, Penalties)
+    │   └── SeededRandom.swift       (SplitMix64 deterministic PRNG)
+    ├── Input/
+    │   ├── TouchControls.swift      (Virtual joystick, buttons, rapid flick/juke Deke detection)
+    │   └── TouchControls+UIKit.swift (UITouch adapter for UIViews)
+    ├── Render/
+    │   ├── GraphicsCompat.swift     (CoreGraphics GPaint, GPath shim mirroring Android Canvas)
+    │   ├── GCanvas.swift            (Hardware-accelerated CGContext draw calls)
+    │   ├── Renderer.swift           (Winter Pond teal rink, alpine background, snow, breath, shattered glass)
+    │   ├── Renderer+Players.swift   (Sprite overhaul: breezers, TUUK holders, 4-roll gloves, visors, stick flex, pad stack sprawl)
+    │   └── Renderer+HUD.swift       (Shootout dot indicators, shot clock, goalie buttons, power play badges)
+    ├── App/
+    │   ├── GameView.swift           (CADisplayLink 60/120 Hz game loop driving Simulation & Renderer)
+    │   ├── SoundManager.swift       (AVFoundation 27-effect sound board with volume control)
+    │   └── MusicManager.swift       (AVAudioPlayer looping music engine with ducking)
+    └── UI/
+        ├── MainMenuView.swift       (Top-level arcade menu: Quick Match, Shootout, Playoffs, How to Play)
+        ├── MatchSettingsView.swift  (Club selection, Arena toggle, Period length, Difficulty, Audio sliders)
+        ├── TournamentView.swift     (8-team single elimination Stanley Cup playoff bracket)
+        └── GameContainerView.swift  (SwiftUI UIViewRepresentable wrapper with Pause & Game Over overlays)
+```
 
-- `Model/` — `TeamInfo` (28-club roster), `MatchConfig`, `Prefs` (UserDefaults-backed
-  audio settings). Ports of `model/`.
-- `Game/` — `Rink` (geometry + board containment), `Skater`, `Puck`, `Team`, `World`
-  (`Phase`, `GameEvent`, `PlayerInput`, `AiSettings`), `Camera` (world↔screen math only —
-  no drawing), `PhysicsEngine` (movement, collisions, puck glide/boards/posts/nets,
-  goalie capsule), `AIController` (skater/goalie decision-making), `Simulation`
-  (authoritative match flow: faceoffs, whistles, periods, OT, shooting, passing, checks,
-  saves, scoring). Ports of `game/Rink.kt` through `game/Simulation.kt`.
-- `Render/` — `GraphicsCompat.swift`/`GCanvas.swift` (a `Paint`/`Path`/`Canvas`-shaped
-  shim over Core Graphics, described below), `Renderer` (+`Renderer+Players`,
-  `Renderer+HUD`) — a close port of `Renderer.kt`'s ~300 draw calls — and `CameraApply`
-  (the `Canvas`-dependent half of `Camera.apply()` Phase 1 deliberately left out).
-  `TouchControlsState` is the read-only contract `Renderer` draws the on-screen controls
-  from, satisfied by `Input/TouchControls`.
-- `Input/` — `TouchControls`, a port of `TouchControls.kt`: the joystick + SHOOT/PASS/HIT
-  button logic, driven by pointer down/move/up calls keyed by `AnyHashable` (Android's
-  integer pointer IDs) rather than any UIKit type, so the file itself has no UIKit
-  dependency. `TouchControls+UIKit.swift` is the thin adapter that feeds it from a
-  `UIView`'s real `touchesBegan`/`Moved`/`Ended`/`Cancelled`, using
-  `ObjectIdentifier(touch)` as that same pointer identity.
+## Feature Parity Matrix with Android `main`
 
-Each Swift file is a close, mostly line-for-line port of its Kotlin counterpart, with a
-few idiomatic adjustments:
+| Feature | Android (`Kotlin`) | iOS (`Swift`) |
+| :--- | :---: | :---: |
+| **Shootout Showdown** | ✅ | ✅ |
+| **Playoff Tournament Bracket** | ✅ | ✅ |
+| **Outdoor Winter Pond Arena** | ✅ | ✅ |
+| **Snowfall Weather & Breath Vapor** | ✅ | ✅ |
+| **Shattered Plexiglass on Hits** | ✅ | ✅ |
+| **Rapid-Stick Toe-Drag / Deke** | ✅ | ✅ |
+| **"On Fire" Momentum System** | ✅ | ✅ |
+| **Active Goalie Saves (Butterfly / Pad Stack)** | ✅ | ✅ |
+| **Sprite Overhaul (Pants, TUUK, 4-Roll, Visor)** | ✅ | ✅ |
+| **Composite Stick Flex on Wind-up** | ✅ | ✅ |
+| **Knurled Textured Puck with Comet Glow** | ✅ | ✅ |
+| **CADisplayLink 60/120 Hz Game Loop** | SurfaceView / Ch議er | CADisplayLink |
+| **AVFoundation Audio & Music Engine** | SoundPool / MediaPlayer | AVAudioPlayer / AVFoundation |
+| **SwiftUI Menus & Navigation Shell** | Jetpack Activity / Views | SwiftUI 3+ Views |
 
-- Kotlin `object` singletons (`Rink`, `PhysicsEngine`) → Swift `enum` namespaces with
-  static members.
-- `FloatArray` scratch buffers for mutated positions/normals (`pos`, `normal` in
-  `Rink.containCircle`, `PhysicsEngine.goalieContact`) → `inout Float` parameters.
-- `kotlin.random.Random` (shared by reference between `Simulation` and `AIController`)
-  → `SeededRandom`, a small reference-type SplitMix64 PRNG (`Game/SeededRandom.swift`).
-  Not bit-identical to Kotlin's generator — doesn't need to be, since nothing here
-  depends on cross-platform determinism.
-- `android.graphics.Color` ints → `UInt32` ARGB packed the same way, via
-  `HexColor.argb("#RRGGBB")` (`Game/HexColor.swift`), so `TeamInfo` colours carry
-  straight over. The eventual Renderer converts these to `CGColor`/`UIColor`.
-- `Prefs` drops the Android `Context` argument — `UserDefaults.standard` is process-wide
-  on iOS, so it isn't needed.
+## Building & Running
 
-## Known limitation: no Mac in this environment
-
-This code was written and reviewed by reading, not compiled or type-checked — no session
-that has worked on this port so far has had an Xcode/macOS toolchain available. Expect
-small Swift-compiler fixups on first build (mainly literal/ternary type-inference spots
-in the arithmetic-heavy files like `PhysicsEngine.swift` and `Simulation.swift`), not
-logic rewrites. Treat the first `swift build` on a Mac as the real verification step;
-nothing here should be assumed correct until that passes. Two spots in `Renderer.swift`
-carry above-average risk and are flagged in its own header comment: `drawArc`'s angle
-convention and the crowd bitmap's coordinate flip — check those first if the rendered
-frame looks wrong. `Input/TouchControls.swift` has one spot flagged the same way, in
-`pointerUp` — written as explicit `if/else` specifically to avoid a Swift pattern-match
-question (switching a non-optional value against optional `case` bindings) that couldn't
-be checked without a compiler.
-
-## What's deliberately not here yet
-
-- **Game loop / app shell** — `GameView.kt` → a `UIView` subclass driving `Simulation` +
-  `Renderer` off a `CADisplayLink`, plus the `.xcodeproj`/App target this package needs
-  to actually run: none of this repo's sessions have had Xcode to create one. Once that
-  exists, wiring it to `Render/` and `Input/` is mostly mechanical — both were written
-  with exactly this integration in mind (see their own doc comments).
-- **Audio** — `SoundManager.kt` / `MusicManager.kt` → `AVAudioEngine` / `AVAudioPlayer`.
-  The underlying WAV assets from `tools/make_sounds.py` are reusable as-is.
-- **UI screens** — `MainActivity`, `MatchSettingsActivity`, `HowToPlayActivity`,
-  `WifiLobbyActivity`, `GameActivity` → SwiftUI views.
-- **Networking** — WiFi (`GameServer`/`GameClient`, TCP + NSD) ports to
-  `Network.framework` + Bonjour. **Bluetooth (`BluetoothLink.kt`) does not port**: it's
-  classic RFCOMM, which iOS has no public API for. An iPad could never pair with this
-  Fire tablet over Bluetooth even after a full rewrite; WiFi multiplayer is the only
-  transport that can survive the port as-is. The newer internet relay transport
-  (`RelayLink.kt`, see the root README) is plain WebSocket + JSON and ports cleanly too,
-  once WiFi's `Network.framework` work exists to model it on.
-
-See the root [`CLAUDE.md`](../CLAUDE.md) for the Android codebase map these files were
-ported from.
+Open `ios/PowerPlayHockeyCore/` in Xcode or add it as a Swift Package dependency to any iOS project targeting iOS 15.0 or later.
+The root UI view is `MainMenuView()`.

@@ -7,6 +7,7 @@ enum Phase {
 /// One-shot things that happened this tick; the view turns them into sounds / effects.
 enum GameEvent {
     case shot, pass, boards, post, goal, hit, poke, save, whistle, horn, faceoffDrop, pickup, periodEnd, gameOver, faceoffSet
+    case oneTimer, penalty, onFire, deke, glassShatter, goalieSaveMove
 }
 
 /// Per-frame command state from a human controller (touch or network).
@@ -18,6 +19,7 @@ final class PlayerInput {
     var shootCharge: Float = 0
     var pass: Bool = false
     var hit: Bool = false
+    var deke: Bool = false
 
     var moveMagnitude: Float { hypot(moveX, moveY) }
 
@@ -26,12 +28,13 @@ final class PlayerInput {
         shootRelease = false
         pass = false
         hit = false
+        deke = false
     }
 
     func copyFrom(_ o: PlayerInput) {
         moveX = o.moveX; moveY = o.moveY
         shootHeld = o.shootHeld; shootRelease = o.shootRelease; shootCharge = o.shootCharge
-        pass = o.pass; hit = o.hit
+        pass = o.pass; hit = o.hit; deke = o.deke
     }
 }
 
@@ -97,9 +100,40 @@ final class World {
 
     /// Index of the skater each human team controls; -1 when the team is AI.
     var controlled: [Int] = [-1, -1]
+    var isHumanTeam: [Bool] = [true, false]
     var switchLock: [Float] = [0, 0]
     /// Charge level of the human's held shot, for the HUD meter.
     var shotCharge: [Float] = [0, 0]
+
+    // Power play / penalties (-1 = none)
+    var penaltyTeam = -1
+    var penaltyTimer: Float = 0
+    var penaltyPlayerIndex = -1
+
+    // Goalie pulled (extra attacker)
+    var goaliePulled: [Bool] = [false, false]
+
+    // "On Fire" Momentum System (0..3 momentum points; fireTimer > 0 means ON FIRE)
+    var momentum: [Int] = [0, 0]
+    var fireTimer: [Float] = [0, 0]
+    func isOnFire(_ teamId: Int) -> Bool { (0...1).contains(teamId) && fireTimer[teamId] > 0 }
+
+    // Shootout Mode (5 rounds + sudden death, 1-on-1 breakaways)
+    var isShootout = false
+    var shootoutRound = 1
+    var shootoutTurn = 0           // 0 = Team 0, 1 = Team 1
+    var shootoutTimer: Float = 15  // 15-second shot clock
+    var shootoutOver = false
+    var shootoutAttempts: [[Int]] = [Array(repeating: 0, count: 15), Array(repeating: 0, count: 15)]
+    var shootoutShooterIndex: [Int] = [0, 0]
+
+    // Arena & Environment (Indoor Stadium vs Outdoor Winter Pond)
+    var arenaType: ArenaType = .indoor
+
+    // Glass shatter effect from monster board checks
+    var glassShatterX: Float = 0
+    var glassShatterY: Float = 0
+    var glassShatterTimer: Float = 0
 
     var events: [GameEvent] = []
 
@@ -127,7 +161,7 @@ final class World {
         return s.team * 6 + s.index
     }
 
-    func isHuman(_ teamId: Int) -> Bool { controlled[teamId] >= 0 }
+    func isHuman(_ teamId: Int) -> Bool { (0...1).contains(teamId) && isHumanTeam[teamId] }
 
     func controlledSkater(_ teamId: Int) -> Skater? {
         let i = controlled[teamId]

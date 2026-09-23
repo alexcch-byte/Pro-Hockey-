@@ -15,9 +15,14 @@ enum Role {
     }
 }
 
+enum GoalieAction {
+    case none
+    case butterfly
+    case padStack
+}
+
 /// One player on the ice - five skaters and a goalie per team. Pure state;
-/// all behaviour lives in Simulation / AIController and drawing in the
-/// (not yet ported) Renderer.
+/// all behaviour lives in Simulation / AIController and drawing in Renderer.
 final class Skater {
     static let STICK_REACH: Float = 2.6
     static let POKE_REACH: Float = 4.6
@@ -48,6 +53,9 @@ final class Skater {
     var checkTimer: Float = 0
     /// Generic cooldown between poke/hit attempts.
     var actionCooldown: Float = 0
+    /// > 0 while performing a deke (lateral dodge/juke).
+    var dekeTimer: Float = 0
+    var dekeDir: Float = 1
     /// Can't re-collect the puck until this expires (after shooting / passing).
     var pickupCooldown: Float = 0
     /// Shot / pass animation.
@@ -61,10 +69,18 @@ final class Skater {
     var aiTargetY: Float = 0
     var aiChaser: Bool = false
 
-    // Goalie-only
+    // Goalie active save moves
     var butterfly: Bool = false
+    var goalieAction: GoalieAction = .none
+    var goalieActionTimer: Float = 0
+    var padStackDir: Float = 1
     /// Multiplier on the goalie's blocking area (difficulty).
     var padScale: Float = 1
+
+    // One-timer & penalty state
+    var oneTimerArmed: Bool = false
+    var inPenaltyBox: Bool = false
+    var breathTimer: Float = 0
 
     // Network interpolation targets (client only)
     var netX: Float = 0
@@ -91,10 +107,10 @@ final class Skater {
     func place(_ px: Float, _ py: Float, _ face: Float) {
         x = px; y = py; vx = 0; vy = 0
         facing = face
-        stunTimer = 0; pokeTimer = 0; checkTimer = 0
+        stunTimer = 0; pokeTimer = 0; checkTimer = 0; dekeTimer = 0
         actionCooldown = 0; pickupCooldown = 0; swingTimer = 0
         aiTimer = 0; aiTargetX = px; aiTargetY = py; aiChaser = false
-        butterfly = false
+        butterfly = false; goalieAction = .none; goalieActionTimer = 0
         netX = px; netY = py; netFacing = face
     }
 }
