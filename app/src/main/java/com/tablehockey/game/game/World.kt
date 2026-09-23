@@ -1,12 +1,14 @@
 package com.tablehockey.game.game
 
 import com.tablehockey.game.model.AiDifficulty
+import com.tablehockey.game.model.ArenaType
 import com.tablehockey.game.model.TeamInfo
 
 enum class Phase { FACEOFF, PLAY, WHISTLE, GOAL, PERIOD_END, GAME_OVER }
 
 /** One-shot things that happened this tick; the view turns them into sounds / effects. */
-enum class GameEvent { SHOT, PASS, BOARDS, POST, GOAL, HIT, POKE, SAVE, WHISTLE, HORN, FACEOFF_DROP, PICKUP, PERIOD_END, GAME_OVER, FACEOFF_SET }
+enum class GameEvent { SHOT, PASS, BOARDS, POST, GOAL, HIT, POKE, SAVE, WHISTLE, HORN, FACEOFF_DROP, PICKUP, PERIOD_END, GAME_OVER, FACEOFF_SET, ONE_TIMER, PENALTY, ON_FIRE, DEKE, GLASS_SHATTER, GOALIE_SAVE_MOVE }
+
 
 /** Per-frame command state from a human controller (touch or network). */
 class PlayerInput {
@@ -17,6 +19,7 @@ class PlayerInput {
     var shootCharge = 0f
     var pass = false
     var hit = false
+    var deke = false
 
     val moveMagnitude: Float get() = kotlin.math.hypot(moveX, moveY)
 
@@ -25,12 +28,13 @@ class PlayerInput {
         shootRelease = false
         pass = false
         hit = false
+        deke = false
     }
 
     fun copyFrom(o: PlayerInput) {
         moveX = o.moveX; moveY = o.moveY
         shootHeld = o.shootHeld; shootRelease = o.shootRelease; shootCharge = o.shootCharge
-        pass = o.pass; hit = o.hit
+        pass = o.pass; hit = o.hit; deke = o.deke
     }
 }
 
@@ -94,16 +98,48 @@ class World(homeInfo: TeamInfo, awayInfo: TeamInfo, val periodLength: Int) {
 
     /** Index of the skater each human team controls; -1 when the team is AI. */
     val controlled = intArrayOf(-1, -1)
+    val isHumanTeam = booleanArrayOf(true, false)
     val switchLock = floatArrayOf(0f, 0f)
     /** Charge level of the human's held shot, for the HUD meter. */
     val shotCharge = floatArrayOf(0f, 0f)
 
+    // Power play / penalties (-1 = none)
+    var penaltyTeam = -1
+    var penaltyTimer = 0f
+    var penaltyPlayerIndex = -1
+
+    // Goalie pulled (extra attacker)
+    val goaliePulled = booleanArrayOf(false, false)
+
+    // "On Fire" Momentum System (0..3 momentum points; fireTimer > 0 means ON FIRE)
+    val momentum = intArrayOf(0, 0)
+    val fireTimer = floatArrayOf(0f, 0f)
+    fun isOnFire(teamId: Int): Boolean = teamId in 0..1 && fireTimer[teamId] > 0f
+
+    // Shootout Mode (5 rounds + sudden death, 1-on-1 breakaways)
+    var isShootout = false
+    var shootoutRound = 1
+    var shootoutTurn = 0           // 0 = Team 0, 1 = Team 1
+    var shootoutTimer = 15f         // 15-second shot clock
+    var shootoutOver = false
+    val shootoutAttempts = arrayOf(IntArray(15) { 0 }, IntArray(15) { 0 })
+    val shootoutShooterIndex = intArrayOf(0, 0)
+
+    // Arena & Environment (Indoor Stadium vs Outdoor Winter Pond)
+    var arenaType = ArenaType.INDOOR
+
+    // Glass shatter effect from monster board checks
+    var glassShatterX = 0f
+    var glassShatterY = 0f
+    var glassShatterTimer = 0f
+
     val events = ArrayList<GameEvent>()
 
-    val allSkaters: List<Skater> = teams[0].skaters + teams[1].skaters
+
+    val allSkaters: List<Skater> get() = teams[0].skaters + teams[1].skaters
 
     fun team(id: Int) = teams[id]
-    fun opponent(id: Int) = teams[1 - id]
+    fun opponent(teamId: Int) = teams[1 - teamId]
 
     fun skaterByCode(code: Int): Skater? {
         if (code < 0) return null
@@ -115,7 +151,7 @@ class World(homeInfo: TeamInfo, awayInfo: TeamInfo, val periodLength: Int) {
 
     fun codeOf(s: Skater?): Int = if (s == null) -1 else s.team * 6 + s.index
 
-    fun isHuman(teamId: Int) = controlled[teamId] >= 0
+    fun isHuman(teamId: Int) = teamId in 0..1 && isHumanTeam[teamId]
 
     fun controlledSkater(teamId: Int): Skater? {
         val i = controlled[teamId]

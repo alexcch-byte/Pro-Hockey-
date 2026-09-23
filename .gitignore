@@ -22,3 +22,7 @@ local.properties
 relay-server/node_modules/
 relay-server/.wrangler/
 relay-server/package-lock.json
+
+# Local scratch / prototype
+Ethan/
+

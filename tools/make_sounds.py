@@ -565,6 +565,115 @@ def sfx_click():
     return np.sign(np.sin(2 * np.pi * np.cumsum(f) / SR)) * decay(n, 0.03)
 
 
+def sfx_one_timer():
+    n = seconds(0.42)
+    t = t_axis(n)
+    slap = bandpass(white(n), 1200, 7500) * decay(n, 0.02) * 1.8
+    thud = np.sin(2 * np.pi * (160 * np.exp(-t * 22) + 60) * t) * decay(n, 0.08) * 1.5
+    flex = highpass(white(n), 4000) * decay(n, 0.015) * 1.2
+    return slap + thud + flex
+
+
+def sfx_gasp():
+    n = seconds(1.1)
+    gasp_noise = bandpass(white(n), 450, 1800)
+    env = adsr(n, 0.08, 0.25, 0.35, 0.45, 0.6)
+    return gasp_noise * env * 1.3
+
+
+def sfx_penalty():
+    n = seconds(0.9)
+    t = t_axis(n)
+    trill1 = 0.55 + 0.45 * np.sign(np.sin(2 * np.pi * 38 * t))
+    tone = (np.sin(2 * np.pi * 2650 * t) + 0.6 * np.sin(2 * np.pi * 3400 * t)) * trill1
+    env1 = adsr(seconds(0.35), 0.01, 0.04, 0.6, 0.08, 0.9)
+    whistle1 = np.zeros(n)
+    whistle1[:len(env1)] = tone[:len(env1)] * env1
+
+    start2 = seconds(0.4)
+    rem = n - start2
+    t2 = t_axis(rem)
+    horn = (np.sin(2 * np.pi * 311.13 * t2) + 0.7 * np.sin(2 * np.pi * 466.16 * t2)) * adsr(rem, 0.02, 0.1, 0.4, 0.15, 0.8)
+    whistle1[start2:] += horn * 0.7
+    return whistle1
+
+
+def sfx_fire():
+    """Combustion whoosh with sub-bass surge and crackle for ON FIRE state."""
+    n = seconds(1.3)
+    t = t_axis(n)
+    # Low frequency sweep: 60Hz -> 180Hz -> 45Hz
+    freq = 65 + 130 * np.exp(-((t - 0.25) ** 2) / 0.06)
+    phase = 2 * np.pi * np.cumsum(freq) / SR
+    bass = np.sin(phase) + 0.5 * np.sin(phase * 2)
+    bass *= adsr(n, 0.08, 0.35, 0.4, 0.45, 0.85)
+
+    # Filtered whoosh noise
+    nz = white(n)
+    whoosh = bandpass(nz, 280, 2400) * adsr(n, 0.05, 0.25, 0.4, 0.5, 0.75)
+
+    # Crackle bursts
+    crackle = (rng.uniform(0, 1, n) > 0.985).astype(np.float64) * white(n) * 1.5
+    crackle = bandpass(crackle, 1200, 7000) * decay(n, 0.5)
+
+    out = bass * 0.9 + whoosh * 0.85 + crackle * 0.4
+    return echo(out, 0.08, 0.3, repeats=2)
+
+
+def sfx_deke():
+    """Quick lateral skate bite on ice + puck toe-drag snap."""
+    n = seconds(0.35)
+    t = t_axis(n)
+    # Quick ice carve slice
+    carve = bandpass(white(n), 1200, 6500) * adsr(n, 0.02, 0.08, 0.1, 0.12, 0.5)
+    # Wood stick toe-drag click
+    click_n = seconds(0.04)
+    t_c = t_axis(click_n)
+    click = np.sin(2 * np.pi * 1400 * t_c) * np.exp(-t_c / 0.008)
+    carve[:len(click)] += click * 1.2
+    return carve
+
+
+def sfx_glass():
+    """Shattering plexiglass: violent impact crunch + cascading crystal shards."""
+    n = seconds(1.1)
+    t = t_axis(n)
+    # 1. Heavy low body/glass impact thud
+    thud = np.sin(2 * np.pi * 95 * t) * np.exp(-t / 0.09) * 0.8
+    thud += np.sin(2 * np.pi * 160 * t) * np.exp(-t / 0.07) * 0.5
+    # 2. Explosive fracture transient (wideband noise crunch)
+    crunch = bandpass(white(n), 1500, 8500) * adsr(n, 0.005, 0.12, 0.2, 0.35, 0.4) * 1.3
+    # 3. Crystal harmonic ring
+    ring = np.zeros(n)
+    for freq in [2850, 4200, 6100, 8400]:
+        ring += np.sin(2 * np.pi * freq * t) * np.exp(-t / 0.22) * 0.18
+    # 4. Cascading tinkling glass shards falling onto ice
+    shards = np.zeros(n)
+    shard_times = [0.08, 0.14, 0.19, 0.27, 0.33, 0.42, 0.52, 0.65, 0.78]
+    for st in shard_times:
+        idx = seconds(st)
+        dur = seconds(0.05)
+        if idx + dur < n:
+            sfreq = 3500 + rng.uniform(500, 5500)
+            t_s = t_axis(dur)
+            ping = np.sin(2 * np.pi * sfreq * t_s) * np.exp(-t_s / 0.012)
+            shards[idx:idx + dur] += ping * rng.uniform(0.15, 0.35)
+    out = thud + crunch + ring + shards
+    return echo(out, 0.06, 0.25, repeats=2)
+
+
+def sfx_pad_stack():
+    """Two-pad stack sprawl: heavy leather slap on ice + sliding friction."""
+    n = seconds(0.55)
+    t = t_axis(n)
+    # Heavy leather pad slap
+    slap = np.sin(2 * np.pi * 140 * t) * np.exp(-t / 0.08) * 0.7
+    slap_crunch = bandpass(white(n), 400, 2500) * adsr(n, 0.01, 0.06, 0.05, 0.1, 0.4)
+    # Ice slide friction
+    slide = bandpass(white(n), 800, 5000) * adsr(n, 0.04, 0.18, 0.15, 0.18, 0.6) * 0.8
+    return slap + slap_crunch + slide
+
+
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     save("music_menu.wav", music_menu(), 0.8)
@@ -590,3 +699,11 @@ if __name__ == "__main__":
     save("faceoff.wav", sfx_faceoff(), 0.8)
     save("pickup.wav", sfx_pickup(), 0.6)
     save("button_click.wav", sfx_click(), 0.7)
+    save("one_timer.wav", sfx_one_timer(), 0.95)
+    save("gasp.wav", sfx_gasp(), 0.85)
+    save("penalty.wav", sfx_penalty(), 0.85)
+    save("fire.wav", sfx_fire(), 0.9)
+    save("deke.wav", sfx_deke(), 0.85)
+    save("glass.wav", sfx_glass(), 0.95)
+    save("pad_stack.wav", sfx_pad_stack(), 0.85)
+

@@ -58,6 +58,13 @@ class SoundManager(context: Context) {
     private val jingleWinId = load(R.raw.jingle_win)
     private val jingleLoseId = load(R.raw.jingle_lose)
     private val clickId = load(R.raw.button_click)
+    private val oneTimerId = load(R.raw.one_timer)
+    private val gaspId = load(R.raw.gasp)
+    private val penaltyId = load(R.raw.penalty)
+    private val fireId = load(R.raw.fire)
+    private val dekeId = load(R.raw.deke)
+    private val glassId = load(R.raw.glass)
+    private val padStackId = load(R.raw.pad_stack)
 
     private val handler = Handler(Looper.getMainLooper())
     private val rng = Random(System.nanoTime())
@@ -80,15 +87,23 @@ class SoundManager(context: Context) {
         if (!enabled) return
         when (event) {
             GameEvent.SHOT -> play(shotId, 1f, jitter(0.08f), 1)
+            GameEvent.ONE_TIMER -> play(oneTimerId, 1f, jitter(0.06f), 2)
             GameEvent.PASS -> play(passId, 0.75f, jitter(0.1f))
             GameEvent.PICKUP -> play(pickupId, 0.35f, jitter(0.15f))
             GameEvent.FACEOFF_DROP -> play(faceoffId, 0.8f)
             GameEvent.BOARDS -> play(boardsId, 0.85f, jitter(0.12f))
-            GameEvent.POST -> play(postId, 0.9f, 1f, 1)
+            GameEvent.POST -> {
+                play(postId, 0.95f, 1f, 1)
+                later(120) { play(gaspId, 0.85f) }
+            }
             GameEvent.POKE -> play(passId, 0.5f, 0.8f)
-            GameEvent.SAVE -> play(saveId, 0.9f, jitter(0.1f), 1)
+            GameEvent.SAVE -> {
+                play(saveId, 0.9f, jitter(0.1f), 1)
+                if (rng.nextFloat() < 0.3f) later(160) { play(gaspId, 0.7f) }
+            }
             GameEvent.HIT -> play(hitId, 1f, jitter(0.1f), 1)
             GameEvent.WHISTLE -> play(whistleId, 0.9f, 1f, 2)
+            GameEvent.PENALTY -> play(penaltyId, 1f, 1f, 2)
             GameEvent.HORN -> play(hornId, 1f, 1f, 2)
             GameEvent.GOAL -> {
                 play(cheerId, 1f, 1f, 2)
@@ -97,8 +112,13 @@ class SoundManager(context: Context) {
             GameEvent.PERIOD_END -> later(900) { play(jinglePeriodId, 0.85f, 1f, 2) }
             GameEvent.GAME_OVER -> {}   // the view calls playResult() with the outcome
             GameEvent.FACEOFF_SET -> if (rng.nextFloat() < 0.4f) later(250) { play(organId, 0.7f, 1f, 1) }
+            GameEvent.ON_FIRE -> play(fireId, 1.0f, 1f, 3)
+            GameEvent.DEKE -> play(dekeId, 0.85f, jitter(0.1f), 1)
+            GameEvent.GLASS_SHATTER -> play(glassId, 1.0f, jitter(0.05f), 3)
+            GameEvent.GOALIE_SAVE_MOVE -> play(padStackId, 0.9f, jitter(0.08f), 2)
         }
     }
+
 
     /** Short skate scrape; alternates two samples so strides don't sound identical. */
     fun playSkate(intensity: Float) {

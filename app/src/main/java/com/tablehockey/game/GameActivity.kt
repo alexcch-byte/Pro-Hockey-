@@ -79,6 +79,27 @@ class GameActivity : AppCompatActivity() {
         val sliders = LayoutInflater.from(this).inflate(R.layout.dialog_audio, null)
         AudioSliders.bind(sliders, this) { level -> soundManager.volume = level }
 
+        val btnPull = sliders.findViewById<com.google.android.material.button.MaterialButton>(R.id.btnPullGoalie)
+        val initialPulled = gameView.isGoaliePulled()
+        btnPull?.text = if (initialPulled) "RETURN GOALIE TO CREASE" else "PULL GOALIE (EXTRA ATTACKER)"
+        btnPull?.setOnClickListener {
+            val nowPulled = gameView.togglePullGoalie()
+            btnPull.text = if (nowPulled) "RETURN GOALIE TO CREASE" else "PULL GOALIE (EXTRA ATTACKER)"
+            soundManager.playClick()
+        }
+
+        val btnArena = sliders.findViewById<com.google.android.material.button.MaterialButton>(R.id.btnToggleArena)
+        fun updateArenaBtnText(type: com.tablehockey.game.model.ArenaType) {
+            btnArena?.text = if (type == com.tablehockey.game.model.ArenaType.WINTER_POND) "ARENA: WINTER POND (OUTDOOR)" else "ARENA: INDOOR STADIUM"
+        }
+        updateArenaBtnText(gameView.getArenaType())
+        btnArena?.setOnClickListener {
+            val nextType = gameView.toggleArena()
+            updateArenaBtnText(nextType)
+            com.tablehockey.game.model.Prefs.setArenaType(this, nextType)
+            soundManager.playClick()
+        }
+
         val builder = AlertDialog.Builder(this)
             .setTitle(getString(R.string.game_paused))
             .setView(sliders)
@@ -115,21 +136,40 @@ class GameActivity : AppCompatActivity() {
             false -> getString(R.string.you_lose)
             null -> getString(R.string.game_over)
         }
+        val isTournament = intent.getBooleanExtra("IS_TOURNAMENT", false)
         val builder = AlertDialog.Builder(this)
             .setTitle(title)
             .setMessage("${home.fullName} $homeScore\n${away.fullName} $awayScore")
             .setCancelable(false)
-            .setNegativeButton(getString(R.string.game_quit)) { d, _ ->
+
+        if (isTournament) {
+            builder.setPositiveButton("CONTINUE TO BRACKET") { d, _ ->
+                d.dismiss()
+                val resultIntent = Intent().apply {
+                    putExtra("HOME_SCORE", homeScore)
+                    putExtra("AWAY_SCORE", awayScore)
+                    putExtra("LOCAL_WON", localWon == true)
+                }
+                setResult(RESULT_OK, resultIntent)
+                finish()
+            }
+            builder.setNegativeButton("EXIT TOURNAMENT") { d, _ ->
                 d.dismiss()
                 quitToMenu()
             }
-        if (config.mode == GameMode.SINGLE_PLAYER || config.mode == GameMode.WIFI_HOST) {
-            builder.setPositiveButton(getString(R.string.rematch)) { d, _ ->
+        } else {
+            builder.setNegativeButton(getString(R.string.game_quit)) { d, _ ->
                 d.dismiss()
-                dialogShowing = false
-                enterImmersive()
-                gameView.restartMatch()
-                gameView.resume()
+                quitToMenu()
+            }
+            if (config.mode == GameMode.SINGLE_PLAYER || config.mode == GameMode.WIFI_HOST) {
+                builder.setPositiveButton(getString(R.string.rematch)) { d, _ ->
+                    d.dismiss()
+                    dialogShowing = false
+                    enterImmersive()
+                    gameView.restartMatch()
+                    gameView.resume()
+                }
             }
         }
         builder.show()
@@ -152,8 +192,12 @@ class GameActivity : AppCompatActivity() {
     private fun quitToMenu() {
         NetworkSession.clear()
         MusicManager.stop()
-        startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP))
-        finish()
+        if (intent.getBooleanExtra("IS_TOURNAMENT", false)) {
+            finish()
+        } else {
+            startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP))
+            finish()
+        }
     }
 
     override fun onPause() {

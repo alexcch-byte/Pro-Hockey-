@@ -49,21 +49,35 @@
             style="@style/MenuButton"
             android:text="@string/menu_play_now" />
 
-        <Space android:layout_width="0dp" android:layout_height="12dp" />
+        <Space android:layout_width="0dp" android:layout_height="8dp" />
+
+        <Button
+            android:id="@+id/btnTournament"
+            style="@style/MenuButton"
+            android:text="@string/menu_tournament" />
+
+        <Space android:layout_width="0dp" android:layout_height="8dp" />
+
+        <Button
+            android:id="@+id/btnShootout"
+            style="@style/MenuButton"
+            android:text="@string/menu_shootout" />
+
+        <Space android:layout_width="0dp" android:layout_height="8dp" />
 
         <Button
             android:id="@+id/btnWifi2p"
             style="@style/MenuButton"
             android:text="@string/menu_wifi_2p" />
 
-        <Space android:layout_width="0dp" android:layout_height="12dp" />
+        <Space android:layout_width="0dp" android:layout_height="8dp" />
 
         <Button
             android:id="@+id/btnHowToPlay"
             style="@style/MenuButton"
             android:text="@string/menu_how_to_play" />
 
-        <Space android:layout_width="0dp" android:layout_height="12dp" />
+        <Space android:layout_width="0dp" android:layout_height="8dp" />
 
         <Button
             android:id="@+id/btnExit"

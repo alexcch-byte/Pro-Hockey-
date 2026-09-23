@@ -33,6 +33,12 @@ class MatchSettingsActivity : AppCompatActivity() {
 
         val radioPeriod = findViewById<RadioGroup>(R.id.radioPeriodLength)
         val radioDifficulty = findViewById<RadioGroup>(R.id.radioDifficulty)
+        val radioArena = findViewById<RadioGroup>(R.id.radioArena)
+        if (Prefs.arenaType(this) == com.tablehockey.game.model.ArenaType.WINTER_POND) {
+            radioArena.check(R.id.arenaWinterPond)
+        } else {
+            radioArena.check(R.id.arenaIndoor)
+        }
         AudioSliders.bind(findViewById(R.id.audioSliders), this)
 
         findViewById<Button>(R.id.btnStart).setOnClickListener {
@@ -51,6 +57,12 @@ class MatchSettingsActivity : AppCompatActivity() {
                 R.id.diffHard -> AiDifficulty.HARD
                 else -> AiDifficulty.MEDIUM
             }
+            val arena = if (radioArena.checkedRadioButtonId == R.id.arenaWinterPond) {
+                com.tablehockey.game.model.ArenaType.WINTER_POND
+            } else {
+                com.tablehockey.game.model.ArenaType.INDOOR
+            }
+            Prefs.setArenaType(this, arena)
             val config = MatchConfig(
                 mode = GameMode.SINGLE_PLAYER,
                 homeTeam = home,
@@ -58,7 +70,8 @@ class MatchSettingsActivity : AppCompatActivity() {
                 periodLengthSeconds = periodLength,
                 aiDifficulty = difficulty,
                 soundEnabled = Prefs.soundEnabled(this),
-                musicEnabled = Prefs.musicEnabled(this)
+                musicEnabled = Prefs.musicEnabled(this),
+                arenaType = arena
             )
             startActivity(Intent(this, GameActivity::class.java).putExtra(MatchConfig.EXTRA_KEY, config))
         }

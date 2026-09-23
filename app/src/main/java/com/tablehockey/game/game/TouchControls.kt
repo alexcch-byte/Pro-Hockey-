@@ -37,6 +37,12 @@ class TouchControls(private val density: Float) {
     private var hitPointer = -1
     private var shootDownTime = 0L
 
+    // Automatic Deke detection on rapid joystick movement / flick
+    private var prevJoyTime = 0L
+    private var prevJoyMx = 0f
+    private var prevJoyMy = 0f
+    private var dekeCooldownUntil = 0L
+
     private var screenW = 1
     private var screenH = 1
     private var topExclusion = 0f
@@ -81,6 +87,7 @@ class TouchControls(private val density: Float) {
         }
         joyPointer = -1; shootPointer = -1; passPointer = -1; hitPointer = -1
         joyActive = false; shootDown = false; passDown = false; hitDown = false
+        prevJoyTime = 0L; prevJoyMx = 0f; prevJoyMy = 0f
     }
 
     /** Returns true when the event was consumed by a control. */
@@ -135,6 +142,9 @@ class TouchControls(private val density: Float) {
             joyAnchorY = y
             joyKnobX = x
             joyKnobY = y
+            prevJoyTime = SystemClock.elapsedRealtime()
+            prevJoyMx = 0f
+            prevJoyMy = 0f
             synchronized(lock) { input.moveX = 0f; input.moveY = 0f }
         }
     }
@@ -158,6 +168,33 @@ class TouchControls(private val density: Float) {
             mx = mx / mag * scaled
             my = my / mag * scaled
         }
+
+        // Detect rapid flick / sharp direction change for automatic deke move
+        val now = SystemClock.elapsedRealtime()
+        val dtMs = now - prevJoyTime
+        if (dtMs in 25..220) {
+            val prevMag = hypot(prevJoyMx, prevJoyMy)
+            val curMag = hypot(mx, my)
+            if (curMag > 0.42f && now > dekeCooldownUntil) {
+                val deltaDist = hypot(mx - prevJoyMx, my - prevJoyMy)
+                val stickSpeed = deltaDist / (dtMs / 1000f)
+                val dot = if (prevMag > 0.28f && curMag > 0.28f) {
+                    (mx * prevJoyMx + my * prevJoyMy) / (curMag * prevMag)
+                } else 1f
+                val isSharpCut = (dot < 0.2f && prevMag > 0.38f && dtMs <= 180)
+                val isFastFlick = (stickSpeed > 7.5f && curMag > 0.5f)
+                if (isSharpCut || isFastFlick) {
+                    synchronized(lock) { input.deke = true }
+                    dekeCooldownUntil = now + 500L
+                }
+            }
+        }
+        if (dtMs >= 25) {
+            prevJoyMx = mx
+            prevJoyMy = my
+            prevJoyTime = now
+        }
+
         synchronized(lock) { input.moveX = mx; input.moveY = my }
     }
 
@@ -166,6 +203,9 @@ class TouchControls(private val density: Float) {
             joyPointer -> {
                 joyPointer = -1
                 joyActive = false
+                prevJoyTime = 0L
+                prevJoyMx = 0f
+                prevJoyMy = 0f
                 synchronized(lock) { input.moveX = 0f; input.moveY = 0f }
             }
             shootPointer -> {

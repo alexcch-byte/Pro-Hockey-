@@ -65,6 +65,11 @@
             android:screenOrientation="sensorLandscape"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize" />
 
+        <activity
+            android:name=".TournamentActivity"
+            android:exported="true"
+            android:screenOrientation="sensorLandscape" />
+
     </application>
 
 </manifest>

@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:background="@drawable/bg_card"
+    android:padding="8dp"
+    android:layout_marginTop="4dp"
+    android:layout_marginBottom="4dp">
+
+    <!-- Team 1 Row -->
+    <LinearLayout
+        android:id="@+id/rowTeam1"
+        android:layout_width="match_parent"
+        android:layout_height="28dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp">
+
+        <View
+            android:id="@+id/colorTeam1"
+            android:layout_width="4dp"
+            android:layout_height="18dp"
+            android:background="#2E86FF"
+            android:layout_marginEnd="6dp" />
+
+        <TextView
+            android:id="@+id/tvAbbr1"
+            android:layout_width="38dp"
+            android:layout_height="wrap_content"
+            android:text="GLK"
+            android:textColor="@color/text_primary"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvName1"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Hawks"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp"
+            android:singleLine="true" />
+
+        <TextView
+            android:id="@+id/tvScore1"
+            android:layout_width="24dp"
+            android:layout_height="wrap_content"
+            android:text="-"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:gravity="end" />
+    </LinearLayout>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#1E293B"
+        android:layout_marginTop="2dp"
+        android:layout_marginBottom="2dp" />
+
+    <!-- Team 2 Row -->
+    <LinearLayout
+        android:id="@+id/rowTeam2"
+        android:layout_width="match_parent"
+        android:layout_height="28dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp">
+
+        <View
+            android:id="@+id/colorTeam2"
+            android:layout_width="4dp"
+            android:layout_height="18dp"
+            android:background="#D8323C"
+            android:layout_marginEnd="6dp" />
+
+        <TextView
+            android:id="@+id/tvAbbr2"
+            android:layout_width="38dp"
+            android:layout_height="wrap_content"
+            android:text="BVF"
+            android:textColor="@color/text_primary"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvName2"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Flames"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp"
+            android:singleLine="true" />
+
+        <TextView
+            android:id="@+id/tvScore2"
+            android:layout_width="24dp"
+            android:layout_height="wrap_content"
+            android:text="-"
+            android:textColor="@color/text_primary"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:gravity="end" />
+    </LinearLayout>
+
+</LinearLayout>

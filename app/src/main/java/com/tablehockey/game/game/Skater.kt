@@ -6,6 +6,8 @@ import kotlin.math.sin
 
 enum class Role(val label: String) { C("C"), LW("LW"), RW("RW"), LD("LD"), RD("RD"), G("G") }
 
+enum class GoalieAction { NONE, BUTTERFLY, PAD_STACK }
+
 /**
  * One player on the ice - five skaters and a goalie per team. Pure state;
  * all behaviour lives in [Simulation] / [AIController] and drawing in [Renderer].
@@ -30,6 +32,9 @@ class Skater(val team: Int, val index: Int, val role: Role, val number: Int) {
     var checkTimer = 0f
     /** Generic cooldown between poke/hit attempts. */
     var actionCooldown = 0f
+    /** > 0 while performing a deke (lateral dodge/juke). */
+    var dekeTimer = 0f
+    var dekeDir = 1f
     /** Can't re-collect the puck until this expires (after shooting / passing). */
     var pickupCooldown = 0f
     /** Shot / pass animation. */
@@ -43,10 +48,19 @@ class Skater(val team: Int, val index: Int, val role: Role, val number: Int) {
     var aiTargetY = 0f
     var aiChaser = false
 
-    // Goalie-only
+    // Goalie active save moves
     var butterfly = false
+    var goalieAction = GoalieAction.NONE
+    var goalieActionTimer = 0f
+    var padStackDir = 1f
     /** Multiplier on the goalie's blocking area (difficulty). */
     var padScale = 1f
+
+    // One-timer & penalty state
+    var oneTimerArmed = false
+    var inPenaltyBox = false
+    var breathTimer = 0f
+
 
     // Network interpolation targets (client only)
     var netX = 0f
@@ -65,10 +79,10 @@ class Skater(val team: Int, val index: Int, val role: Role, val number: Int) {
     fun place(px: Float, py: Float, face: Float) {
         x = px; y = py; vx = 0f; vy = 0f
         facing = face
-        stunTimer = 0f; pokeTimer = 0f; checkTimer = 0f
+        stunTimer = 0f; pokeTimer = 0f; checkTimer = 0f; dekeTimer = 0f
         actionCooldown = 0f; pickupCooldown = 0f; swingTimer = 0f
         aiTimer = 0f; aiTargetX = px; aiTargetY = py; aiChaser = false
-        butterfly = false
+        butterfly = false; goalieAction = GoalieAction.NONE; goalieActionTimer = 0f
         netX = px; netY = py; netFacing = face
     }
 

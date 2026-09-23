@@ -29,6 +29,7 @@ object PhysicsEngine {
      * toward the direction of travel while moving.
      */
     fun moveSkater(s: Skater, desiredVx: Float, desiredVy: Float, maxSpeed: Float, dt: Float) {
+        if (abs(s.y) > 100f) return
         if (s.stunTimer > 0f) {
             val f = exp(-dt * 5f)
             s.vx *= f; s.vy *= f
@@ -65,6 +66,7 @@ object PhysicsEngine {
 
     /** Keeps skaters inside the boards and out of the nets. */
     fun constrainSkater(s: Skater) {
+        if (s.inPenaltyBox || abs(s.y) > 100f) return
         tmpPos[0] = s.x; tmpPos[1] = s.y
         if (Rink.containCircle(tmpPos, s.radius, tmpNormal)) {
             s.x = tmpPos[0]; s.y = tmpPos[1]
@@ -82,16 +84,16 @@ object PhysicsEngine {
                 val halfW = Rink.NET_HALF_W + 0.2f
                 if (ax + s.radius > left && ax - s.radius < right && abs(s.y) < halfW + s.radius) {
                     // Push out along the axis of least penetration.
-                    val penX = if (ax < (left + right) / 2f) (ax + s.radius) - left else right - (ax - s.radius)
-                    val penY = (halfW + s.radius) - abs(s.y)
-                    if (penX < penY) {
-                        val dir = if (ax < (left + right) / 2f) -1f else 1f
-                        s.x = (ax + dir * penX) * e
-                        s.vx = 0f
-                    } else {
-                        val sy = if (s.y == 0f) 1f else sign(s.y)
-                        s.y = sy * (halfW + s.radius)
-                        s.vy = 0f
+                    val penLeft = (ax + s.radius) - left
+                    val penRight = right - (ax - s.radius)
+                    val penTop = (halfW + s.radius) - s.y
+                    val penBot = (halfW + s.radius) + s.y
+                    val m = minOf(penLeft, penRight, penTop, penBot)
+                    when (m) {
+                        penLeft -> { s.x = (left - s.radius) * e; if (s.vx * e > 0f) s.vx = 0f }
+                        penRight -> { s.x = (right + s.radius) * e; if (s.vx * e < 0f) s.vx = 0f }
+                        penTop -> { s.y = halfW + s.radius; if (s.vy < 0f) s.vy = 0f }
+                        penBot -> { s.y = -(halfW + s.radius); if (s.vy > 0f) s.vy = 0f }
                     }
                 }
             }
@@ -106,8 +108,10 @@ object PhysicsEngine {
         val n = skaters.size
         for (i in 0 until n) {
             val a = skaters[i]
+            if (a.inPenaltyBox || abs(a.y) > 100f) continue
             for (j in i + 1 until n) {
                 val b = skaters[j]
+                if (b.inPenaltyBox || abs(b.y) > 100f) continue
                 val dx = b.x - a.x
                 val dy = b.y - a.y
                 val minDist = a.radius + b.radius

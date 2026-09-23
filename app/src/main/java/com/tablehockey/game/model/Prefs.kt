@@ -26,4 +26,29 @@ object Prefs {
 
     fun soundEnabled(ctx: Context): Boolean = sfxVolume(ctx) > 0
     fun musicEnabled(ctx: Context): Boolean = musicVolume(ctx) > 0
+
+    private const val KEY_TOURNAMENT = "tournament_state"
+    private const val KEY_ARENA = "arena_type"
+
+    fun arenaType(ctx: Context): ArenaType {
+        val name = prefs(ctx).getString(KEY_ARENA, ArenaType.INDOOR.name)
+        return try { ArenaType.valueOf(name ?: ArenaType.INDOOR.name) } catch (e: Exception) { ArenaType.INDOOR }
+    }
+
+    fun setArenaType(ctx: Context, type: ArenaType) {
+        prefs(ctx).edit().putString(KEY_ARENA, type.name).apply()
+    }
+
+    fun saveTournament(ctx: Context, state: TournamentState) {
+        prefs(ctx).edit().putString(KEY_TOURNAMENT, state.toJson()).apply()
+    }
+
+    fun getTournament(ctx: Context): TournamentState? {
+        val str = prefs(ctx).getString(KEY_TOURNAMENT, null) ?: return null
+        return TournamentState.fromJson(str)
+    }
+
+    fun clearTournament(ctx: Context) {
+        prefs(ctx).edit().remove(KEY_TOURNAMENT).apply()
+    }
 }

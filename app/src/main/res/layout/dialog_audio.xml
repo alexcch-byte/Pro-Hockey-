@@ -17,4 +17,26 @@
         android:layout_marginBottom="4dp" />
 
     <include layout="@layout/audio_sliders" />
+
+    <Button
+        android:id="@+id/btnPullGoalie"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="12dp"
+        android:backgroundTint="@color/button_bg"
+        android:textColor="@color/text_primary"
+        android:textStyle="bold"
+        android:textSize="13sp"
+        android:text="PULL GOALIE (EXTRA ATTACKER)" />
+
+    <Button
+        android:id="@+id/btnToggleArena"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="8dp"
+        android:backgroundTint="@color/button_bg"
+        android:textColor="@color/text_primary"
+        android:textStyle="bold"
+        android:textSize="13sp"
+        android:text="ARENA: INDOOR STADIUM" />
 </LinearLayout>

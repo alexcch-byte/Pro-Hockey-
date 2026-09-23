@@ -3,6 +3,8 @@
     <string name="app_name">Power Play Hockey</string>
 
     <string name="menu_play_now">Play Now</string>
+    <string name="menu_tournament">Tournament Playoffs</string>
+    <string name="menu_shootout">Shootout Showdown</string>
     <string name="menu_wifi_2p">Multiplayer</string>
     <string name="menu_how_to_play">How to Play</string>
     <string name="menu_exit">Exit</string>
@@ -19,6 +21,9 @@
     <string name="audio_sfx">Sound FX</string>
     <string name="audio_music">Music</string>
     <string name="audio_off">Off</string>
+    <string name="settings_arena">Arena</string>
+    <string name="arena_indoor">Indoor Stadium</string>
+    <string name="arena_winter_pond">Winter Pond</string>
     <string name="settings_start">Drop the Puck</string>
 
     <string name="difficulty_easy">Rookie</string>

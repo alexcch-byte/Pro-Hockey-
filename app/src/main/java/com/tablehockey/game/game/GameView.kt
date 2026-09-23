@@ -128,6 +128,10 @@ class GameView @JvmOverloads constructor(
 
     private fun createWorld(home: Int, away: Int, periodLength: Int) {
         val w = World(TeamInfo.byIndex(home), TeamInfo.byIndex(away), periodLength)
+        w.isShootout = (config.mode == GameMode.SHOOTOUT)
+        w.arenaType = config.arenaType
+        w.isHumanTeam[0] = true
+        w.isHumanTeam[1] = (config.mode == GameMode.WIFI_HOST || config.mode == GameMode.WIFI_CLIENT)
         if (config.mode == GameMode.WIFI_CLIENT) {
             w.controlled[0] = 0
             w.controlled[1] = 0
@@ -207,9 +211,16 @@ class GameView @JvmOverloads constructor(
     // ---------------------------------------------------------------- input
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_DOWN && renderer.isPauseHit(event.x, event.y)) {
-            listener?.onPauseRequested()
-            return true
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            if (renderer.isPauseHit(event.x, event.y)) {
+                listener?.onPauseRequested()
+                return true
+            }
+            val w = world
+            if (w != null && renderer.isSwitchShooterHit(event.x, event.y, w, localTeam)) {
+                simulation?.cycleShootoutShooter(localTeam)
+                return true
+            }
         }
         return controls.onTouch(event)
     }
@@ -369,12 +380,35 @@ class GameView @JvmOverloads constructor(
         for (e in events) {
             sm?.handle(e)
             when (e) {
-                GameEvent.GOAL -> MusicManager.duck(0.2f, 4000)
+                GameEvent.GOAL -> {
+                    MusicManager.duck(0.2f, 4000)
+                    renderer.camera.addShake(0.75f)
+                }
                 GameEvent.PERIOD_END -> MusicManager.duck(0.25f, 3500)
                 GameEvent.GAME_OVER -> MusicManager.stop()
+                GameEvent.ONE_TIMER -> renderer.camera.addShake(0.6f)
+                GameEvent.POST -> renderer.camera.addShake(0.45f)
+                GameEvent.HIT -> renderer.camera.addShake(0.35f)
                 else -> {}
             }
         }
+    }
+
+    fun togglePullGoalie(): Boolean {
+        return simulation?.togglePullGoalie(localTeam) ?: false
+    }
+
+    fun isGoaliePulled(): Boolean {
+        return world?.goaliePulled?.getOrNull(localTeam) ?: false
+    }
+
+    fun getArenaType(): com.tablehockey.game.model.ArenaType = world?.arenaType ?: com.tablehockey.game.model.ArenaType.INDOOR
+
+    fun toggleArena(): com.tablehockey.game.model.ArenaType {
+        val w = world ?: return com.tablehockey.game.model.ArenaType.INDOOR
+        val next = if (w.arenaType == com.tablehockey.game.model.ArenaType.INDOOR) com.tablehockey.game.model.ArenaType.WINTER_POND else com.tablehockey.game.model.ArenaType.INDOOR
+        w.arenaType = next
+        return next
     }
 
     /** Crowd bed, looping game music and the controlled skater's stride scrapes. */

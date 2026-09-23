@@ -79,6 +79,9 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
                 }
             }
             Situation.LOOSE -> {
+                if (puck.passTarget === s && team.toAttackX(s.x) > -10f && rng.nextFloat() < ai.shootTendency * 0.75f) {
+                    s.oneTimerArmed = true
+                }
                 val px = (puck.x + puck.vx * 0.35f).coerceIn(-97f, 97f)
                 val py = (puck.y + puck.vy * 0.35f).coerceIn(-40f, 40f)
                 val chasers = pickChasers(team, px, py, humanIdx, 2)

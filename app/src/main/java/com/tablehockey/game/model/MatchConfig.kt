@@ -5,7 +5,13 @@ import java.io.Serializable
 enum class GameMode {
     SINGLE_PLAYER,
     WIFI_HOST,
-    WIFI_CLIENT
+    WIFI_CLIENT,
+    SHOOTOUT
+}
+
+enum class ArenaType {
+    INDOOR,
+    WINTER_POND
 }
 
 enum class AiDifficulty {
@@ -26,12 +32,13 @@ data class MatchConfig(
     val periodLengthSeconds: Int,
     val aiDifficulty: AiDifficulty,
     val soundEnabled: Boolean,
-    val musicEnabled: Boolean = true
+    val musicEnabled: Boolean = true,
+    val arenaType: ArenaType = ArenaType.INDOOR
 ) : Serializable {
 
     companion object {
         const val EXTRA_KEY = "match_config"
 
-        fun default() = MatchConfig(GameMode.SINGLE_PLAYER, TeamInfo.DEFAULT_HOME, TeamInfo.DEFAULT_AWAY, 120, AiDifficulty.MEDIUM, true)
+        fun default() = MatchConfig(GameMode.SINGLE_PLAYER, TeamInfo.DEFAULT_HOME, TeamInfo.DEFAULT_AWAY, 120, AiDifficulty.MEDIUM, true, true, ArenaType.INDOOR)
     }
 }

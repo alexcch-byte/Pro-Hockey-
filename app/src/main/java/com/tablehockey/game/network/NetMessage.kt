@@ -45,6 +45,7 @@ object NetCodec {
         put("sc", i.shootCharge.toDouble())
         put("ps", i.pass)
         put("ht", i.hit)
+        put("dk", i.deke)
     }.toString()
 
     /** Merges a received input into [dst]; one-shot presses accumulate until consumed. */
@@ -60,6 +61,7 @@ object NetCodec {
         }
         if (obj.optBoolean("ps", false)) dst.pass = true
         if (obj.optBoolean("ht", false)) dst.hit = true
+        if (obj.optBoolean("dk", false)) dst.deke = true
     }
 
     private const val F_STUN = 1
@@ -105,6 +107,10 @@ object NetCodec {
         o.put("bs", w.bannerSub ?: JSONObject.NULL)
         o.put("bt", w.bannerTimer.toDouble())
         o.put("ch", w.shotCharge[1].toDouble())
+        o.put("pt", w.penaltyTeam)
+        o.put("ptm", w.penaltyTimer.toDouble())
+        o.put("gp0", w.goaliePulled[0])
+        o.put("gp1", w.goaliePulled[1])
         if (w.events.isNotEmpty()) {
             o.put("ev", JSONArray().apply { for (e in w.events) put(e.ordinal) })
         }
@@ -158,6 +164,11 @@ object NetCodec {
         w.bannerSub = if (obj.isNull("bs")) null else obj.getString("bs")
         w.bannerTimer = obj.optDouble("bt", 0.0).toFloat()
         w.shotCharge[1] = obj.optDouble("ch", 0.0).toFloat()
+        w.penaltyTeam = obj.optInt("pt", -1)
+        w.penaltyTimer = obj.optDouble("ptm", 0.0).toFloat()
+        w.goaliePulled[0] = obj.optBoolean("gp0", false)
+        w.goaliePulled[1] = obj.optBoolean("gp1", false)
+
         val ev = obj.optJSONArray("ev")
         if (ev != null) {
             val values = GameEvent.values()
