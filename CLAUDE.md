@@ -68,6 +68,17 @@ Every file in `app/src/main/res/raw` is synthesized by `python tools/make_sounds
 Music is original NES-style chiptune written in that script (no copyrighted game music). Re-run the
 script after editing a sound, then rebuild. No ffmpeg here, so music ships as 22 kHz WAV.
 
+- Impacts and skates render at 44.1 kHz (modal synthesis); music, horn, crowd and ambience at 22.05 kHz.
+  Crowd sounds are formant-synthesised voices plus synthetic arena reverb; loops are built to be seamless.
+- `save(..., level=)` pins a sound's loudness (loudest 100 ms RMS after a 250 Hz high-pass, i.e. what a
+  tablet speaker can play), so redesigning a sound doesn't upset `SoundManager`'s mix.
+  `SOUND_OUT=<dir> python tools/make_sounds.py` renders somewhere else for auditioning.
+- `SoundManager` rotates takes (`puck_hit`, `_2`, `_3`, ...), pans puck sounds by screen position, scales
+  shots/passes/boards by puck speed, adds `tail_bright`/`tail_dark` reverb indoors, and drives two crowd
+  loops (`crowd_loop` murmur + `crowd_roar`) from an excitement level updated in `updateMix()` every frame.
+  The Winter Pond arena plays `wind_loop` instead and skips the organ.
+- The iOS port keeps its own copies of the audio under `ios/.../Resources`; they are not regenerated.
+
 ## Conventions and gotchas
 
 - Keep gameplay changes in `Simulation`/`AIController`/`PhysicsEngine`; the renderer must stay

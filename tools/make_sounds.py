@@ -13,20 +13,67 @@ import os
 import wave
 
 import numpy as np
-from scipy.signal import butter, lfilter
+from scipy.signal import butter, fftconvolve, lfilter
 
 SR = 22050
-OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                   "app", "src", "main", "res", "raw")
+OUT = os.environ.get("SOUND_OUT") or os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "app", "src", "main", "res", "raw")
 rng = np.random.default_rng(1994)
 
 
 # ----------------------------------------------------------------- helpers
 
-def save(name, data, peak=0.9):
+def loudness_db(x):
+    """Loudest 100 ms RMS after a 250 Hz high-pass, in dBFS. Crude, but it
+    tracks how loud a short game sound feels far better than its peak does,
+    and the high-pass stands in for a tablet speaker, which plays almost
+    nothing below 250 Hz (so bass can't make a sound 'loud' on paper only)."""
+    b, a = butter(2, 250 / (SR / 2), btype="high")
+    y = lfilter(b, a, x)
+    win = int(0.1 * SR)
+    c = np.concatenate([[0.0], np.cumsum(y * y)])
+    if len(y) <= win:
+        ms = c[-1] / max(len(y), 1)
+    else:
+        i = np.arange(0, len(y) - win + 1, win // 4)
+        ms = ((c[i + win] - c[i]) / win).max()
+    return 10 * np.log10(ms + 1e-20)
+
+
+def knee_limit(x, knee=0.7, ceiling=0.98):
+    """Leaves everything below `knee` alone and bends anything above it
+    smoothly toward `ceiling`, so the odd sharp transient can't clip."""
+    a = np.abs(x)
+    over = a > knee
+    y = x.copy()
+    w = ceiling - knee
+    y[over] = np.sign(x[over]) * (knee + w * np.tanh((a[over] - knee) / w))
+    return y
+
+
+def save(name, data, peak=0.9, level=None):
+    """Writes 16-bit mono WAV at the current rate.
+
+    peak:  normalise the peak to this (music and jingles).
+    level: normalise loudness_db() to this instead. SoundManager's mix levels
+           were tuned by ear against the previous generation of sounds, so
+           redesigned sounds are pinned to roughly the loudness of the ones
+           they replace. Up to 6 dB of transient overshoot is rounded off by a
+           soft-knee limiter; beyond that the gain is capped instead."""
     data = np.asarray(data, dtype=np.float64)
     m = np.max(np.abs(data)) or 1.0
-    data = data / m * peak
+    note = ""
+    if level is None:
+        data = data / m * peak
+    else:
+        g = 10 ** ((level - loudness_db(data)) / 20)
+        for _ in range(4):              # limiting nudges the loudness; settle it
+            g = min(g, 1.96 / m)
+            out = knee_limit(data * g)
+            g *= 10 ** ((level - loudness_db(out)) / 20)
+        data = out
+        if abs(loudness_db(data) - level) > 0.3:
+            note = f"  (limited; target {level:.1f})"
     pcm = (np.clip(data, -1, 1) * 32767).astype("<i2")
     path = os.path.join(OUT, name)
     with wave.open(path, "wb") as w:
@@ -34,7 +81,8 @@ def save(name, data, peak=0.9):
         w.setsampwidth(2)
         w.setframerate(SR)
         w.writeframes(pcm.tobytes())
-    print(f"{name:20s} {len(data) / SR:6.2f} s  {os.path.getsize(path) // 1024:5d} KB")
+    print(f"{name:18s} {SR // 1000:2d} kHz {len(data) / SR:5.2f} s {os.path.getsize(path) // 1024:4d} KB"
+          f"  {loudness_db(data):6.1f} dB{note}")
 
 
 def seconds(n):
@@ -63,18 +111,33 @@ def decay(n, tau):
     return np.exp(-t_axis(n) / tau)
 
 
+def set_rate(sr):
+    """Switch the sample rate every helper renders at. Music and crowd beds
+    stay at 22.05 kHz (nothing in them reaches 11 kHz); impacts, skates and
+    glass render at 44.1 kHz so their crack and sizzle keep the top octave."""
+    global SR
+    SR = sr
+
+
+def _nyq(f):
+    """Keeps filter corners legal at whichever rate is active."""
+    return min(f, 0.45 * SR)
+
+
 def bandpass(x, lo, hi, order=2):
+    hi = _nyq(hi)
+    lo = min(lo, hi * 0.8)
     b, a = butter(order, [lo / (SR / 2), hi / (SR / 2)], btype="band")
     return lfilter(b, a, x)
 
 
 def highpass(x, f, order=2):
-    b, a = butter(order, f / (SR / 2), btype="high")
+    b, a = butter(order, _nyq(f) / (SR / 2), btype="high")
     return lfilter(b, a, x)
 
 
 def lowpass(x, f, order=2):
-    b, a = butter(order, f / (SR / 2), btype="low")
+    b, a = butter(order, _nyq(f) / (SR / 2), btype="low")
     return lfilter(b, a, x)
 
 
@@ -99,9 +162,32 @@ def echo(x, delay_s, gain, repeats=3):
 
 # ------------------------------------------------------------ oscillators
 
+def _poly_blep(t, dt):
+    """PolyBLEP correction for a unit step at phase 0, t in [0, 1).
+    dt (phase increment per sample) may be a scalar or a per-sample array."""
+    dt = np.broadcast_to(dt, t.shape)
+    y = np.zeros_like(t)
+    a = t < dt
+    x = t[a] / dt[a]
+    y[a] = x + x - x * x - 1.0
+    b = t > 1.0 - dt
+    x = (t[b] - 1.0) / dt[b]
+    y[b] = x * x + x + x + 1.0
+    return y
+
+
 def pulse(freq, n, duty=0.5):
-    t = t_axis(n)
-    return np.where((t * freq) % 1.0 < duty, 1.0, -1.0)
+    """Band-limited pulse wave. A naive square at 22 kHz aliases: every
+    harmonic past Nyquist folds back as an off-key whine, worst on the high
+    lead notes. A PolyBLEP correction on each edge removes almost all of it
+    while keeping the hard chiptune edge. The DC of a narrow pulse is removed
+    too (the NES output is AC-coupled), so notes don't thump as they start."""
+    dt = freq / SR
+    ph = (np.arange(n) * dt) % 1.0
+    y = np.where(ph < duty, 1.0, -1.0)
+    y += _poly_blep(ph, dt)
+    y -= _poly_blep((ph - duty) % 1.0, dt)
+    return y - (2 * duty - 1)
 
 
 def triangle(freq, n):
@@ -283,6 +369,196 @@ def soft_clip(x, drive=1.4):
     return np.tanh(x * drive) / np.tanh(drive)
 
 
+# -------------------------------------------------------------- acoustics
+
+def trim(x, floor_db=-66.0, fade_s=0.03):
+    """Drops the silent end of a decaying sound, with a short fade."""
+    thr = np.max(np.abs(x)) * 10 ** (floor_db / 20)
+    idx = np.nonzero(np.abs(x) > thr)[0]
+    y = x[:(idx[-1] + 1) if len(idx) else len(x)].copy()
+    f = min(seconds(fade_s), len(y))
+    y[len(y) - f:] *= np.linspace(1, 0, f)
+    return y
+
+
+def wrap(x, n):
+    """Folds everything past sample n back onto the start, so events placed
+    anywhere in [0, n) make a loop with no seam at all."""
+    out = x[:n].copy()
+    for i in range(n, len(x), n):
+        k = min(n, len(x) - i)
+        out[:k] += x[i:i + k]
+    return out
+
+
+def loop_filter(fn, x):
+    """Runs a filter over a loop as if it had been playing forever, so the
+    filter's start-up transient doesn't leave a click at the loop point."""
+    return fn(np.concatenate([x, x]))[len(x):]
+
+
+def periodic_noise(n, lo, hi, tilt=0.0, r=None):
+    """Noise that repeats exactly every n samples: a random-phase spectrum
+    between lo and hi (soft 24 dB/oct edges), sloped by `tilt` dB/octave."""
+    r = r or rng
+    f = np.fft.rfftfreq(n, 1 / SR)
+    f[0] = 1.0
+    mag = f ** (tilt / 6.02) / np.sqrt(1 + (lo / f) ** 8) / np.sqrt(1 + (f / hi) ** 8)
+    mag[0] = 0.0
+    x = np.fft.irfft(mag * np.exp(1j * r.uniform(0, 2 * np.pi, len(f))), n)
+    return x / (np.max(np.abs(x)) + 1e-12)
+
+
+def room_ir(rt60=1.4, bright=False, predelay=0.018, seed=7):
+    """Synthetic arena impulse response (unit energy): a spray of early
+    reflections off the boards and glass, then a diffuse tail in four bands
+    whose highs die away faster than its lows."""
+    r = np.random.default_rng(seed)
+    n = seconds(rt60 * 1.15)
+    t = t_axis(n)
+    tone = (0.6, 0.8, 0.7, 0.45) if bright else (1.0, 0.65, 0.3, 0.1)
+    bands = ((60, 350, 1.0), (350, 1400, 0.85), (1400, 4500, 0.6), (4500, 11000, 0.38))
+    tail = np.zeros(n)
+    for (lo, hi, k), g in zip(bands, tone):
+        tail += bandpass(r.standard_normal(n), lo, hi) * 10 ** (-3 * t / (rt60 * k)) * g
+    tail *= 1 - np.exp(-t / 0.025)          # the diffuse field takes a moment to build
+    early = np.zeros(n)
+    for _ in range(16):
+        d = r.uniform(0.003, 0.085)
+        early[seconds(d)] += r.choice([-1.0, 1.0]) * r.uniform(0.4, 1.0) * (1 - d / 0.1)
+    early = lowpass(early, 5500 if bright else 3000)
+    ir = tail / np.sqrt(np.sum(tail ** 2)) + 0.55 * early / np.sqrt(np.sum(early ** 2))
+    ir = np.concatenate([np.zeros(seconds(predelay)), ir])
+    return ir / np.sqrt(np.sum(ir ** 2))
+
+
+def add_room(x, wet=0.3, rt60=1.4, bright=False, seed=7):
+    """A one-shot sound plus its arena reverb."""
+    ir = room_ir(rt60, bright, seed=seed)
+    return trim(np.concatenate([x, np.zeros(len(ir) - 1)]) + wet * fftconvolve(x, ir))
+
+
+def loop_room(x, wet=0.8, rt60=1.8, bright=False, seed=7):
+    """Reverb for a loop: circular convolution, so the tail wraps round."""
+    ir = room_ir(rt60, bright, seed=seed)
+    n = len(x)
+    return x + wet * np.fft.irfft(np.fft.rfft(x) * np.fft.rfft(ir, n), n)
+
+
+# ---------------------------------------------------------- crowd voices
+
+# First three formants (Hz) of adult vowels.
+VOWELS = {
+    "ah": (730, 1090, 2440), "eh": (530, 1840, 2480), "oh": (570, 840, 2410),
+    "oo": (300, 870, 2240), "ee": (270, 2290, 3010), "uh": (640, 1190, 2390),
+}
+VOWEL_NAMES = list(VOWELS)
+
+# (speaking f0 range, formant scale): adult men, adult women, kids. It's a
+# Timbits crowd, so plenty of parents and a lot of kids.
+VOICE_TYPES = (((95, 140), 1.0), ((170, 235), 1.15), ((235, 310), 1.28))
+
+
+def _saw(freq):
+    """Band-limited sawtooth that follows a per-sample frequency array."""
+    dt = freq / SR
+    ph = np.cumsum(dt) % 1.0
+    return 2 * ph - 1 - _poly_blep(ph, dt)
+
+
+def _formant(x, f, bw):
+    """Two-pole resonator with unity gain at its centre frequency."""
+    w = 2 * np.pi * min(f, 0.45 * SR) / SR
+    r = np.exp(-np.pi * bw / SR)
+    g = (1 - r) * np.sqrt(1 - 2 * r * np.cos(2 * w) + r * r)
+    return lfilter([g], [1, -2 * r * np.cos(w), r * r], x)
+
+
+def voice(dur, f0, vowel, size=1.0, shout=0.0, glide=0.0, arch=0.0,
+          attack=0.02, release=0.06, r=None):
+    """One formant-synthesised voice holding a vowel (a Klatt-style parallel
+    formant bank driven by a band-limited glottal sawtooth plus breath).
+
+    size scales the vocal tract (women and kids > 1). shout raises the pitch,
+    opens the mouth and adds breath and roughness. glide bends the pitch by
+    that many semitones across the note; arch adds a rise-and-fall hump."""
+    r = r or rng
+    n = max(seconds(dur), 32)
+    u = np.linspace(0, 1, n, endpoint=False)
+    ts = t_axis(n)
+    semis = glide * u + arch * np.sin(np.pi * u)
+    semis = semis + 0.25 * np.sin(2 * np.pi * r.uniform(4.5, 6.5) * ts + r.uniform(0, 6.3))
+    wander = lowpass(r.standard_normal(n), 9, 1)
+    semis = semis + wander / (np.std(wander) + 1e-9) * (0.15 + 0.35 * shout)
+    src = _saw(f0 * (1 + 0.35 * shout) * 2 ** (semis / 12))
+    if shout < 0.5:
+        src = lowpass(src, 1200 + 3000 * shout, 1)   # relaxed voices are darker
+    exc = src + highpass(r.uniform(-1, 1, n), 900) * (0.08 + 0.25 * shout)
+    f1, f2, f3 = VOWELS[vowel]
+    y = (_formant(exc, f1 * size * (1 + 0.18 * shout), 90 + 60 * shout)
+         - 0.7 * _formant(exc, f2 * size, 110 + 60 * shout)
+         + 0.4 * _formant(exc, f3 * size, 170 + 80 * shout))
+    y /= np.max(np.abs(y)) + 1e-9
+    return y * adsr(n, attack, 0.05, 0, release, 0.85)
+
+
+def consonant(r):
+    """A short fricative/plosive burst to start a spoken syllable."""
+    n = seconds(r.uniform(0.02, 0.05))
+    lo = r.choice([1800, 3000, 4500])
+    return bandpass(r.uniform(-1, 1, n), lo, lo * 2.2) * adsr(n, 0.005, 0.01, 0, 0.01, 0.6)
+
+
+def talker(buf, r, span, level, vtype):
+    """One fan chatting for `span` seconds of loop time: phrases of 3-10
+    syllables with falling intonation, separated by pauses."""
+    (lo, hi), size = vtype
+    base = r.uniform(lo, hi)
+    pos = r.uniform(0, span)
+    end = pos + span
+    while pos < end:
+        syl = int(r.integers(3, 11))
+        for k in range(syl):
+            d = r.uniform(0.09, 0.22)
+            f0 = base * 2 ** ((r.normal(0, 1.3) + 1.5 - 3.0 * k / syl) / 12)
+            v = voice(d, f0, r.choice(VOWEL_NAMES), size, glide=r.normal(0, 1),
+                      attack=0.015, release=0.04, r=r)
+            i = seconds(pos)
+            if r.random() < 0.55:
+                c = consonant(r)
+                put(buf, i, c, 0.2 * level)
+                i += len(c) // 2
+            put(buf, i, v, level)
+            pos += d + r.uniform(0.0, 0.035)
+        pos += r.uniform(0.5, 2.8)
+
+
+def finger_whistle(r):
+    d = r.uniform(0.35, 0.9)
+    n = seconds(d)
+    u = np.linspace(0, 1, n)
+    f = r.uniform(2100, 2900) * 2 ** ((2.5 * np.sin(np.pi * u) - 1.5 * u) / 12)
+    tone = np.sin(2 * np.pi * np.cumsum(f) / SR)
+    return (tone + bandpass(r.uniform(-1, 1, n), 1800, 4000) * 0.15) * adsr(n, 0.04, 0.05, 0, 0.12, 0.9)
+
+
+def clap(r):
+    """A hand clap: two or three micro-bursts within a few ms."""
+    n = seconds(0.06)
+    x = np.zeros(n)
+    for k in range(int(r.integers(2, 4))):
+        i = seconds(k * r.uniform(0.002, 0.005))
+        x[i:] += r.uniform(-1, 1, n - i) * np.exp(-t_axis(n - i) / 0.004)
+    return bandpass(x, r.uniform(700, 1100), r.uniform(2500, 4500))
+
+
+def put(buf, i, w, g=1.0):
+    """Mixes w into buf at sample i, dropping whatever runs off the end."""
+    k = min(len(w), len(buf) - i)
+    if k > 0:
+        buf[i:i + k] += w[:k] * g
+
+
 # ================================================================== MUSIC
 
 def music_menu():
@@ -423,57 +699,162 @@ def organ_rally():
 
 # ============================================================ SOUND EFFECTS
 
-def sfx_shot():
-    n = seconds(0.22)
+# Impacts use modal synthesis: a struck object rings at a handful of
+# resonant frequencies, each decaying at its own rate. Every sound has a few
+# variants (different stick, different panel of boards) that SoundManager
+# rotates through so repeated hits don't sound machine-gunned.
+
+def hit_env(n, attack, tau):
     t = t_axis(n)
-    crack = bandpass(white(n), 1500, 6000) * decay(n, 0.012)
-    body = np.sin(2 * np.pi * (170 * np.exp(-t * 30) + 60) * t) * decay(n, 0.05)
-    slap = bandpass(white(n), 300, 1200) * decay(n, 0.03)
-    return crack * 1.2 + body * 0.9 + slap * 0.6
+    return (1 - np.exp(-t / max(attack, 1e-5))) * np.exp(-t / tau)
 
 
-def sfx_pass():
-    n = seconds(0.14)
+def burst(n, tau, lo, hi, r):
+    """A contact transient: a very short noise impulse, band-limited."""
+    return bandpass(r.uniform(-1, 1, n) * decay(n, tau), lo, hi)
+
+
+def modes(n, freqs, taus, gains, beat=0.0, r=None):
+    """Sum of decaying sine modes. beat splits each mode into two slightly
+    detuned copies, the slow shimmer of a not-quite-symmetric object."""
     t = t_axis(n)
-    tick = bandpass(white(n), 2000, 7000) * decay(n, 0.006)
-    body = np.sin(2 * np.pi * 260 * t) * decay(n, 0.025)
-    return tick + body * 0.6
+    out = np.zeros(n)
+    for f, tau, g in zip(freqs, taus, gains):
+        if f >= 0.45 * SR:
+            continue
+        env = np.exp(-t / tau)
+        if beat:
+            d = beat * (r.uniform(0.5, 1.5) if r is not None else 1.0) / 2
+            out += g * 0.5 * (np.sin(2 * np.pi * (f - d) * t) + np.sin(2 * np.pi * (f + d) * t)) * env
+        else:
+            out += g * np.sin(2 * np.pi * f * t) * env
+    return out
 
 
-def sfx_boards():
-    n = seconds(0.5)
+def thump(n, f_hi, f_lo, k, tau):
+    """A low body hit whose pitch drops from f_hi to f_lo as it decays."""
     t = t_axis(n)
-    thump = np.sin(2 * np.pi * (95 * np.exp(-t * 12) + 55) * t) * decay(n, 0.12)
-    ring = (np.sin(2 * np.pi * 310 * t) + 0.6 * np.sin(2 * np.pi * 520 * t)) * decay(n, 0.09)
-    rattle = bandpass(white(n), 700, 3500) * decay(n, 0.04)
-    return thump * 1.1 + ring * 0.35 + rattle * 0.5
+    f = f_lo + (f_hi - f_lo) * np.exp(-t * k)
+    return np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t / tau)
+
+
+def pops(n, r, rate, tau, lo, hi):
+    """Sparse random clicks dying away: ice chips, cracking plastic."""
+    x = (r.uniform(0, 1, n) < rate / SR) * r.uniform(-1, 1, n) * decay(n, tau)
+    return bandpass(x, lo, hi)
+
+
+def rattle(n, r, freqs, tau, delay=0.0, rate=None):
+    """Plexiglass shaking in its frame: bright panel modes chopped by the
+    panel slapping against its clips a few dozen times a second."""
+    t = t_axis(n)
+    k = r.uniform(0.92, 1.08)
+    taus = [tau * (1 - 0.12 * i) for i in range(len(freqs))]
+    ring = modes(n, [f * k for f in freqs], taus, (1.0, 0.8, 0.6, 0.45, 0.3), beat=3.0, r=r)
+    chop = np.abs(np.sin(np.pi * (rate or r.uniform(22, 34)) * t + r.uniform(0, 3))) ** 3
+    buzz = highpass(r.uniform(-1, 1, n), 2500) * chop * np.exp(-t / (tau * 0.6)) * 0.25
+    x = ring * (0.25 + 0.75 * chop) + buzz
+    d = seconds(delay)
+    return np.concatenate([np.zeros(d), x[:n - d]])
+
+
+def sfx_shot(v, heavy=False):
+    """Stick on puck: a hard snap, the ringing shaft, the rubber puck's tock,
+    the stick flexing and the blade skimming the ice. heavy = one-timer, where
+    the blade slams the ice as it meets the puck."""
+    r = np.random.default_rng(300 + v)
+    n = seconds(0.5 if heavy else 0.38)
+    k = r.uniform(0.93, 1.07)
+    kp = r.uniform(0.9, 1.1)
+    p = 1.35 if heavy else 1.0
+    x = (burst(n, 0.0009 * p, 900, 16000, r) * 1.3
+         + modes(n, [1150 * k, 1720 * k, 2480 * k, 3650 * k, 5200 * k],
+                 [0.032, 0.022, 0.014, 0.009, 0.006], [0.55, 0.42, 0.36, 0.24, 0.18])
+         + modes(n, [640 * kp, 1580 * kp], [0.009, 0.005], [0.6, 0.25])
+         + thump(n, 300 * k, 110, 30, 0.045 * p) * 0.45 * p
+         + bandpass(r.uniform(-1, 1, n), 2500, 11000) * hit_env(n, 0.003, 0.05 * p) * 0.3 * p)
+    if heavy:
+        x += thump(n, 170, 70, 18, 0.08) * 0.5 + burst(n, 0.006, 250, 2000, r) * 0.7
+    return trim(soft_clip(x, 1.3))
+
+
+def sfx_pass(v):
+    """A tape-to-tape pass: a lighter tap of the blade, then the puck hissing away."""
+    r = np.random.default_rng(400 + v)
+    n = seconds(0.28)
+    k = r.uniform(0.92, 1.08)
+    x = (burst(n, 0.0007, 1200, 12000, r) * 0.7
+         + modes(n, [880 * k, 1390 * k, 2150 * k, 3300 * k], [0.02, 0.014, 0.009, 0.005], [0.5, 0.32, 0.22, 0.1])
+         + modes(n, [610 * k, 1500 * k], [0.007, 0.004], [0.45, 0.18])
+         + thump(n, 190, 115, 40, 0.025) * 0.35
+         + bandpass(r.uniform(-1, 1, n), 3500, 12000) * hit_env(n, 0.01, 0.07) * 0.07)
+    return trim(x)
+
+
+def sfx_boards(v):
+    """Puck off the dasher boards: a hollow panel boom, the plastic kick-plate
+    knocking, and (on some panels) the glass above it rattling."""
+    r = np.random.default_rng(500 + v)
+    n = seconds(0.75)
+    k = r.uniform(0.9, 1.1)
+    x = (burst(n, 0.0008, 1000, 8000, r) * 0.5
+         + modes(n, [95 * k, 150 * k, 225 * k, 310 * k, 430 * k],
+                 [0.12, 0.085, 0.06, 0.045, 0.03], [0.6, 0.6, 0.55, 0.45, 0.3])
+         + modes(n, [480 * k, 760 * k, 1130 * k, 1720 * k], [0.03, 0.02, 0.012, 0.008], [0.6, 0.45, 0.3, 0.18])
+         + thump(n, 190 * k, 90 * k, 25, 0.05) * 0.4
+         + rattle(n, r, [420, 610, 890, 1340, 2050], 0.18, delay=0.006) * (0.18, 0.35, 0.06)[v])
+    return trim(soft_clip(x, 1.2))
 
 
 def sfx_post():
-    n = seconds(0.7)
-    t = t_axis(n)
-    ping = (np.sin(2 * np.pi * 1880 * t) * decay(n, 0.22) +
-            0.7 * np.sin(2 * np.pi * 2830 * t) * decay(n, 0.15) +
-            0.4 * np.sin(2 * np.pi * 4120 * t) * decay(n, 0.09))
-    click = white(n) * decay(n, 0.004)
-    return ping + click * 0.8
+    """Puck off the iron. A steel tube rings with the inharmonic partials of a
+    free bar (1 : 2.76 : 5.40 : 8.93 : 13.3), each split into a slow beat
+    because the post is not perfectly round; the net frame thunks under it."""
+    r = np.random.default_rng(600)
+    n = seconds(1.7)
+    f0 = 880.0
+    x = (burst(n, 0.0006, 1500, 16000, r) * 0.9
+         + modes(n, [f0, f0 * 2.756, f0 * 5.404, f0 * 8.933, f0 * 13.34],
+                 [0.95, 0.6, 0.32, 0.16, 0.08], [0.55, 1.0, 0.6, 0.3, 0.15], beat=1.6, r=r)
+         + modes(n, [650, 1600], [0.008, 0.005], [0.5, 0.2])
+         + modes(n, [330, 510], [0.09, 0.06], [0.35, 0.2]))
+    return trim(x, -70)
 
 
-def sfx_hit():
-    n = seconds(0.55)
-    t = t_axis(n)
-    thud = np.sin(2 * np.pi * (110 * np.exp(-t * 18) + 40) * t) * decay(n, 0.08)
-    crunch = bandpass(white(n), 200, 2500) * decay(n, 0.045)
-    glass = highpass(white(n), 3000) * (0.6 + 0.4 * np.sin(2 * np.pi * 9 * t)) * decay(n, 0.14) * 0.5
-    return thud * 1.3 + crunch * 0.8 + glass
+def sfx_hit(v):
+    """Body check into the boards: chest-on-chest thud, pads crunching and
+    cracking, the boards booming and the glass shaking in its frame."""
+    r = np.random.default_rng(700 + v)
+    n = seconds(0.9)
+    k = r.uniform(0.9, 1.1)
+    x = (thump(n, 140 * k, 50, 16, 0.09) * 0.8
+         + thump(n, 320 * k, 170 * k, 30, 0.04) * 0.5
+         + bandpass(r.uniform(-1, 1, n), 300, 2800) * hit_env(n, 0.002, 0.035) * 1.0
+         + pops(n, r, 260, 0.06, 1000, 5000) * 0.45
+         + modes(n, [85 * k, 135 * k, 200 * k, 285 * k, 400 * k],
+                 [0.17, 0.12, 0.085, 0.06, 0.04], [0.6, 0.6, 0.5, 0.4, 0.3])
+         + rattle(n, r, [380, 560, 820, 1250, 1900], 0.3, delay=0.012,
+                  rate=r.uniform(17, 26)) * (0.55, 0.75, 0.4)[v])
+    return trim(soft_clip(x, 1.4))
 
 
-def sfx_save():
-    n = seconds(0.3)
-    t = t_axis(n)
-    pad = lowpass(white(n), 900) * decay(n, 0.05)
-    body = np.sin(2 * np.pi * 140 * t) * decay(n, 0.06)
-    return pad * 1.2 + body * 0.7
+def sfx_save(v):
+    """v0: puck into the pads, a deep foam-and-leather thump.
+    v1: glove save, a leather smack and the pocket snapping shut."""
+    r = np.random.default_rng(800 + v)
+    n = seconds(0.42)
+    k = r.uniform(0.92, 1.08)
+    if v == 0:
+        x = (bandpass(r.uniform(-1, 1, n), 200, 2000) * hit_env(n, 0.001, 0.022)
+             + modes(n, [190 * k, 300 * k, 450 * k], [0.05, 0.035, 0.022], [0.5, 0.45, 0.3])
+             + modes(n, [700, 1650], [0.006, 0.004], [0.35, 0.12])
+             + burst(n, 0.0006, 2000, 8000, r) * 0.2)
+    else:
+        x = (bandpass(r.uniform(-1, 1, n), 700, 4500) * hit_env(n, 0.0005, 0.007)
+             + modes(n, [230 * k, 360 * k], [0.04, 0.025], [0.45, 0.3])
+             + modes(n, [680, 1600], [0.006, 0.004], [0.3, 0.1]))
+        put(x, seconds(0.05), burst(seconds(0.05), 0.003, 1500, 6000, r), 0.3)
+    return trim(x)
 
 
 def sfx_whistle():
@@ -487,75 +868,181 @@ def sfx_whistle():
 
 
 def sfx_horn():
-    n = seconds(2.6)
+    """Goal horn: a bank of overdriven air horns sounding a Bb major chord,
+    each settling onto pitch and wobbling slightly against the others, then
+    filling the arena."""
+    r = np.random.default_rng(1200)
+    n = seconds(2.9)
     t = t_axis(n)
-    f = 233.0 * (1 + 0.02 * np.exp(-t * 6))  # slight pitch settle like a real air horn
     x = np.zeros(n)
-    for h, g in ((1, 1.0), (2, 0.8), (3, 0.6), (4, 0.45), (5, 0.3), (6, 0.2), (7, 0.12)):
-        x += g * np.sin(2 * np.pi * f * h * t + 0.3 * h)
-    x += 0.5 * np.sign(np.sin(2 * np.pi * f * 1.5 * t))
-    x = lowpass(x, 2600)
-    env = adsr(n, 0.06, 0.2, 1.8, 0.5, 0.9)
-    return echo(x * env, 0.21, 0.3, 2)
+    for f, g in ((116.54, 0.5), (233.08, 1.0), (293.66, 0.75), (349.23, 0.7)):
+        fr = f * r.uniform(0.997, 1.003) * (1 + 0.03 * np.exp(-t * 7))
+        fr = fr * (1 + 0.0015 * np.sin(2 * np.pi * r.uniform(4, 6) * t))
+        x += g * _saw(fr)
+    # the bell and throat of a horn: resonances that make a saw sound brassy
+    y = (_formant(x, 520, 300) + 0.6 * _formant(x, 1150, 400)
+         + 0.25 * _formant(x, 2300, 600) + 0.3 * lowpass(x, 3000))
+    y = soft_clip(y / np.max(np.abs(y)) * 1.5, 1.6)
+    y *= adsr(n, 0.09, 0.15, 0, 0.55, 0.95)
+    return add_room(y, 0.45, 2.4, bright=True, seed=21)
 
 
-def sfx_crowd_loop():
-    n = seconds(6.0)
-    fade = seconds(0.5)
-    total = n + fade
-    t = t_axis(total)
-    base = bandpass(white(total), 150, 1800)
-    base = base / np.max(np.abs(base))
-    swell = 0.75 + 0.25 * np.sin(2 * np.pi * t / 6.0) * np.sin(2 * np.pi * t / 2.3)
-    x = base * swell
-    # scattered shouts
-    for _ in range(45):
-        i = rng.integers(0, total - seconds(0.35))
-        m = seconds(rng.uniform(0.08, 0.3))
-        f = rng.uniform(250, 700)
-        shout = np.sin(2 * np.pi * f * t_axis(m) * (1 + 0.1 * np.sin(2 * np.pi * 7 * t_axis(m)))) * adsr(m, 0.02, 0.05, 0.6, 0.05, 0.6)
-        x[i:i + m] += shout * rng.uniform(0.08, 0.2)
-    # crossfade the overhang into the start so the loop point is seamless
-    ramp = np.linspace(0, 1, fade)
-    out = x[:n].copy()
-    out[:fade] = out[:fade] * ramp + x[n:n + fade] * (1 - ramp)
-    return out
+def crowd_murmur():
+    """The arena between whistles: ~40 fans chatting, the odd call across
+    the rink and air handling, all in the arena's reverb. Loops seamlessly."""
+    r = np.random.default_rng(2024)
+    L = 8.0
+    n = seconds(L)
+    near = np.zeros(seconds(2 * L + 4))
+    far = np.zeros_like(near)
+    for _ in range(42):
+        vt = VOICE_TYPES[r.choice(3, p=[0.35, 0.4, 0.25])]
+        lvl = r.uniform(0.2, 1.0) ** 2
+        talker(near if lvl > 0.5 else far, r, L, lvl, vt)
+    for _ in range(4):                       # "let's GO!"
+        (lo, hi), size = VOICE_TYPES[r.choice(3)]
+        f0 = r.uniform(lo, hi)
+        i = seconds(r.uniform(0, L))
+        for j, (vw, d) in enumerate((("eh", 0.16), ("oh", 0.42))):
+            v = voice(d, f0 * (1.12 if j else 1.0), vw, size, shout=0.8, arch=1.5,
+                      attack=0.03, release=0.15, r=r)
+            put(near, i, v, 0.5)
+            i += len(v) + seconds(0.03)
+    x = wrap(near, n) + loop_filter(lambda s: lowpass(s, 2200), wrap(far, n))
+    x /= np.max(np.abs(x))
+    x += periodic_noise(n, 100, 1600, -3, r) * 0.07
+    x *= 1 + 0.1 * np.sin(2 * np.pi * 2 * t_axis(n) / L)
+    return loop_room(x, 0.9, 1.9, seed=11)
 
 
-def sfx_cheer():
-    n = seconds(3.2)
+def crowd_roar():
+    """Excited crowd: 130 overlapping shouts, whistles and applause. Played
+    as a loop under the murmur and faded in as the play heats up."""
+    r = np.random.default_rng(31)
+    L = 8.0
+    n = seconds(L)
+    buf = np.zeros(seconds(L + 3))
+    for _ in range(130):
+        (lo, hi), size = VOICE_TYPES[r.choice(3, p=[0.35, 0.35, 0.3])]
+        v = voice(r.uniform(0.5, 2.2), r.uniform(lo, hi), r.choice(["ah", "ah", "oh", "eh", "uh", "ee"]),
+                  size, shout=r.uniform(0.6, 1.0), glide=r.normal(0, 1.5), arch=r.uniform(0.5, 3),
+                  attack=r.uniform(0.05, 0.2), release=r.uniform(0.2, 0.5), r=r)
+        put(buf, seconds(r.uniform(0, L)), v, r.uniform(0.3, 1.0))
+    for _ in range(5):
+        put(buf, seconds(r.uniform(0, L)), finger_whistle(r), r.uniform(0.15, 0.3))
+    x = wrap(buf, n)
+    x /= np.max(np.abs(x))
+    claps = np.zeros(n + seconds(0.1))
+    for _ in range(400):
+        put(claps, seconds(r.uniform(0, L)), clap(r), r.uniform(0.3, 1.0))
+    claps = wrap(claps, n)
+    x += claps / np.max(np.abs(claps)) * 0.2
+    x += periodic_noise(n, 250, 3500, -2, r) * 0.18
+    return loop_room(x, 0.7, 1.9, bright=True, seed=13)
+
+
+def crowd_cheer():
+    """Goal! Everyone is on their feet within a third of a second, yelling,
+    whistling and then applauding, fading as the roar loop takes over."""
+    r = np.random.default_rng(55)
+    n = seconds(4.0)
+    buf = np.zeros(n)
+    for _ in range(170):
+        (lo, hi), size = VOICE_TYPES[r.choice(3, p=[0.35, 0.35, 0.3])]
+        v = voice(r.uniform(1.0, 2.8), r.uniform(lo, hi), r.choice(["ah", "eh", "ah", "oh", "ee"]), size,
+                  shout=r.uniform(0.75, 1.0), glide=r.uniform(-2, 0.5), arch=r.uniform(1.5, 4),
+                  attack=r.uniform(0.04, 0.12), release=r.uniform(0.4, 0.9), r=r)
+        put(buf, seconds(r.gamma(2.0, 0.08)), v, r.uniform(0.3, 1.0))
+    for _ in range(8):
+        put(buf, seconds(r.uniform(0.3, 2.5)), finger_whistle(r), r.uniform(0.2, 0.35))
+    buf /= np.max(np.abs(buf))
+    claps = np.zeros(n)
+    for _ in range(1100):
+        put(claps, seconds(0.5 + r.uniform(0, 1) ** 0.7 * 3.3), clap(r), r.uniform(0.3, 1.0))
     t = t_axis(n)
-    roar = bandpass(white(n), 200, 2500)
-    roar = roar / np.max(np.abs(roar)) * adsr(n, 0.35, 0.5, 1.4, 0.9, 0.75)
-    for _ in range(60):
-        i = rng.integers(0, n - seconds(0.3))
-        m = seconds(rng.uniform(0.1, 0.35))
-        f = rng.uniform(300, 900)
-        shout = np.sin(2 * np.pi * f * t_axis(m)) * adsr(m, 0.02, 0.05, 0.6, 0.05, 0.6)
-        roar[i:i + m] += shout * rng.uniform(0.05, 0.14)
-    return roar
+    bed = bandpass(r.uniform(-1, 1, n), 250, 4000) * np.minimum(1, t / 0.12)
+    x = buf + claps / np.max(np.abs(claps)) * 0.35 + bed * 0.12
+    x *= np.clip((4.0 - t) / 1.4, 0, 1)
+    return add_room(x, 0.5, 2.0, bright=True, seed=17)
 
 
-def sfx_skate(seed):
-    r = np.random.default_rng(seed)
-    n = seconds(0.16)
+def crowd_gasp():
+    """A near miss: a sharp collective breath, then a rising-and-falling 'ooooh'."""
+    r = np.random.default_rng(71)
+    n = seconds(1.6)
+    buf = np.zeros(n)
+    put(buf, 0, highpass(r.uniform(-1, 1, seconds(0.12)), 1500) * adsr(seconds(0.12), 0.02, 0.04, 0, 0.06, 0.6), 0.15)
+    for _ in range(110):
+        (lo, hi), size = VOICE_TYPES[r.choice(3, p=[0.35, 0.35, 0.3])]
+        v = voice(r.uniform(0.6, 1.1), r.uniform(lo, hi), r.choice(["oo", "oh", "oh", "uh"]), size,
+                  shout=r.uniform(0.3, 0.6), glide=r.uniform(-6, -3), arch=r.uniform(1, 2.5),
+                  attack=0.07, release=0.35, r=r)
+        put(buf, seconds(0.04 + r.gamma(2.0, 0.035)), v, r.uniform(0.3, 1.0))
+    return add_room(buf, 0.5, 1.8, seed=19)
+
+
+def wind_loop():
+    """Outdoor pond: wind in gusts, from a low rumble up to a faint hiss
+    through the trees. Every layer is periodic, so it loops perfectly."""
+    r = np.random.default_rng(88)
+    L = 8.0
+    n = seconds(L)
     t = t_axis(n)
-    x = bandpass(r.uniform(-1, 1, n), 1800, 6500) * adsr(n, 0.02, 0.04, 0.5, 0.08, 0.6)
-    x *= 1 + 0.4 * np.sin(2 * np.pi * (60 + 20 * seed) * t)
-    return x
+    gust = np.clip(0.55 + 0.25 * np.sin(2 * np.pi * t / L + 1) + 0.15 * np.sin(2 * np.pi * 3 * t / L + 2)
+                   + 0.08 * np.sin(2 * np.pi * 7 * t / L), 0.1, None)
+    return (periodic_noise(n, 30, 420, -4, r) * gust
+            + 0.7 * periodic_noise(n, 300, 2200, -3, r) * gust ** 2
+            + 0.12 * periodic_noise(n, 2500, 7000, 0, r) * gust ** 3)
+
+
+def room_tail(bright):
+    """Just the arena's reverb, played quietly after big indoor impacts
+    (SoundManager skips it on the outdoor pond)."""
+    return trim(room_ir(1.3, bright, seed=5 if bright else 6))
+
+
+def sfx_skate(v):
+    """One stride: the blade edge carving the ice. A band of noise sweeps as
+    the push loads the edge (up on even variants, down on odd), with edge
+    chatter and a grainy crunch of ice chips on top."""
+    r = np.random.default_rng(900 + v)
+    dur = r.uniform(0.2, 0.28)
+    n = seconds(dur)
+    t = t_axis(n)
+    u = t / dur
+    centre = (0.5 + 2.0 * u) if v % 2 == 0 else (2.8 - 1.8 * u)
+    x = np.zeros(n)
+    for i, (lo, hi) in enumerate(((1200, 2200), (2200, 3800), (3800, 6200), (6200, 10000), (10000, 15000))):
+        x += bandpass(r.uniform(-1, 1, n), lo, hi) * np.exp(-0.5 * ((i - centre) / 0.9) ** 2)
+    env = np.sin(np.pi * u ** 0.6) ** 1.2
+    x *= 1 + 0.25 * np.sin(2 * np.pi * r.uniform(45, 70) * t)
+    chips = pops(n, r, 1400, 10.0, 3000, 14000)
+    x = x / np.max(np.abs(x)) + chips / np.max(np.abs(chips)) * 0.35
+    return trim(x * env + burst(n, 0.0005, 3000, 14000, r) * 0.25)
 
 
 def sfx_faceoff():
-    n = seconds(0.18)
-    t = t_axis(n)
-    drop = np.sin(2 * np.pi * (220 * np.exp(-t * 40) + 90) * t) * decay(n, 0.03)
-    tick = highpass(white(n), 3000) * decay(n, 0.005)
-    return drop + tick * 0.6
+    """The puck smacks the ice, then the two centres' sticks clash for it."""
+    r = np.random.default_rng(1000)
+    n = seconds(0.36)
+    x = (modes(n, [820, 1930], [0.012, 0.006], [0.6, 0.25])
+         + thump(n, 180, 115, 45, 0.02) * 0.4
+         + burst(n, 0.0005, 1500, 12000, r) * 0.4)
+    for at, g in ((0.065, 0.8), (0.1, 0.55)):
+        m = seconds(0.12)
+        k = r.uniform(0.93, 1.07)
+        c = (modes(m, [1300 * k, 2100 * k, 3150 * k, 4600 * k], [0.02, 0.013, 0.008, 0.005], [0.5, 0.35, 0.22, 0.12])
+             + burst(m, 0.0006, 1500, 14000, r) * 0.6)
+        put(x, seconds(at), c, g)
+    return trim(x)
 
 
 def sfx_pickup():
-    n = seconds(0.06)
-    return highpass(white(n), 3500) * decay(n, 0.006) + np.sin(2 * np.pi * 500 * t_axis(n)) * decay(n, 0.01) * 0.4
+    """Puck settling onto the tape of a blade."""
+    r = np.random.default_rng(1100)
+    n = seconds(0.12)
+    return trim(modes(n, [520, 1180, 2300], [0.012, 0.007, 0.004], [0.5, 0.25, 0.1])
+                + burst(n, 0.0005, 1500, 9000, r) * 0.3)
 
 
 def sfx_click():
@@ -563,22 +1050,6 @@ def sfx_click():
     t = t_axis(n)
     f = 880 * np.exp(-t * 6)
     return np.sign(np.sin(2 * np.pi * np.cumsum(f) / SR)) * decay(n, 0.03)
-
-
-def sfx_one_timer():
-    n = seconds(0.42)
-    t = t_axis(n)
-    slap = bandpass(white(n), 1200, 7500) * decay(n, 0.02) * 1.8
-    thud = np.sin(2 * np.pi * (160 * np.exp(-t * 22) + 60) * t) * decay(n, 0.08) * 1.5
-    flex = highpass(white(n), 4000) * decay(n, 0.015) * 1.2
-    return slap + thud + flex
-
-
-def sfx_gasp():
-    n = seconds(1.1)
-    gasp_noise = bandpass(white(n), 450, 1800)
-    env = adsr(n, 0.08, 0.25, 0.35, 0.45, 0.6)
-    return gasp_noise * env * 1.3
 
 
 def sfx_penalty():
@@ -676,6 +1147,10 @@ def sfx_pad_stack():
 
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
+
+    # Music, jingles, the horn, crowd beds and ambience: nothing in them needs
+    # the octave above 11 kHz, so 22.05 kHz keeps the APK small.
+    set_rate(22050)
     save("music_menu.wav", music_menu(), 0.8)
     save("music_game.wav", music_game(), 0.8)
     save("jingle_goal.wav", jingle_goal(), 0.85)
@@ -683,27 +1158,49 @@ if __name__ == "__main__":
     save("jingle_win.wav", jingle_win(), 0.85)
     save("jingle_lose.wav", jingle_lose(), 0.8)
     save("organ_rally.wav", organ_rally(), 0.8)
-    save("puck_hit.wav", sfx_shot(), 0.95)
-    save("pass.wav", sfx_pass(), 0.8)
-    save("wall_bounce.wav", sfx_boards(), 0.9)
-    save("post.wav", sfx_post(), 0.9)
-    save("body_hit.wav", sfx_hit(), 0.95)
-    save("save.wav", sfx_save(), 0.85)
+    # Loudness targets are loudness_db() values. For reference, the previous
+    # generation measured: horn -10.2, crowd -13.0, cheer -11.4, gasp -13.0,
+    # shot -19.9, one-timer -20.9, pass -22.1, pickup -23.4, boards -19.1,
+    # post -10.0, hit -20.2, save -20.0, skate -17.3, faceoff -21.5. The old
+    # impacts kept most of their energy below 250 Hz, i.e. they were
+    # nearly inaudible on a tablet speaker; the new ones are placed 3-5 dB
+    # hotter on that scale, but carry less bass so they sound about as loud
+    # as before on headphones.
+    horn = sfx_horn()
+    save("horn.wav", horn, level=-10.0)
+    save("goal.wav", horn, level=-10.0)  # legacy name, same horn
+    save("crowd_loop.wav", crowd_murmur(), level=-14.0)
+    save("crowd_roar.wav", crowd_roar(), level=-12.0)
+    save("cheer.wav", crowd_cheer(), level=-11.0)
+    save("gasp.wav", crowd_gasp(), level=-12.5)
+    save("wind_loop.wav", wind_loop(), level=-17.0)
+    save("tail_bright.wav", room_tail(True), level=-17.0)
+    save("tail_dark.wav", room_tail(False), level=-17.0)
     save("whistle.wav", sfx_whistle(), 0.85)
-    save("horn.wav", sfx_horn(), 0.95)
-    save("goal.wav", sfx_horn(), 0.95)  # legacy name, same horn
-    save("crowd_loop.wav", sfx_crowd_loop(), 0.8)
-    save("cheer.wav", sfx_cheer(), 0.9)
-    save("skate1.wav", sfx_skate(1), 0.7)
-    save("skate2.wav", sfx_skate(2), 0.7)
-    save("faceoff.wav", sfx_faceoff(), 0.8)
-    save("pickup.wav", sfx_pickup(), 0.6)
-    save("button_click.wav", sfx_click(), 0.7)
-    save("one_timer.wav", sfx_one_timer(), 0.95)
-    save("gasp.wav", sfx_gasp(), 0.85)
     save("penalty.wav", sfx_penalty(), 0.85)
+    save("button_click.wav", sfx_click(), 0.7)
     save("fire.wav", sfx_fire(), 0.9)
     save("deke.wav", sfx_deke(), 0.85)
     save("glass.wav", sfx_glass(), 0.95)
     save("pad_stack.wav", sfx_pad_stack(), 0.85)
+
+    # Impacts and skates at 44.1 kHz: the snap of a stick and the sizzle of
+    # a blade live in the top octave.
+    set_rate(44100)
+    for v, name in enumerate(("puck_hit", "puck_hit_2", "puck_hit_3")):
+        save(name + ".wav", sfx_shot(v), level=-16.0)
+    save("one_timer.wav", sfx_shot(3, heavy=True), level=-15.0)
+    for v, name in enumerate(("pass", "pass_2", "pass_3")):
+        save(name + ".wav", sfx_pass(v), level=-20.0)
+    for v, name in enumerate(("wall_bounce", "wall_bounce_2", "wall_bounce_3")):
+        save(name + ".wav", sfx_boards(v), level=-16.0)
+    save("post.wav", sfx_post(), level=-11.0)
+    for v, name in enumerate(("body_hit", "body_hit_2", "body_hit_3")):
+        save(name + ".wav", sfx_hit(v), level=-16.0)
+    save("save.wav", sfx_save(0), level=-17.0)
+    save("save_2.wav", sfx_save(1), level=-17.0)
+    for v in range(4):
+        save(f"skate{v + 1}.wav", sfx_skate(v), level=-18.5)
+    save("faceoff.wav", sfx_faceoff(), level=-18.0)
+    save("pickup.wav", sfx_pickup(), level=-23.0)
 

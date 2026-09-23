@@ -414,6 +414,7 @@ class GameView @JvmOverloads constructor(
     /** Crowd bed, looping game music and the controlled skater's stride scrapes. */
     private fun updateAmbience(w: World, dt: Float) {
         val sm = soundManager
+        sm?.updateMix(w, renderer.camera, dt)
         if (sm != null && !crowdStarted && w.phase != Phase.GAME_OVER) {
             sm.startCrowd()
             crowdStarted = true
@@ -430,7 +431,7 @@ class GameView @JvmOverloads constructor(
                 skateTimer -= dt
                 if (skateTimer <= 0f) {
                     val intensity = (speed / Skater.MAX_SPEED).coerceIn(0f, 1f)
-                    sm.playSkate(intensity)
+                    sm.playSkate(intensity, s.x)
                     skateTimer = 0.44f - 0.14f * intensity
                 }
             } else {
