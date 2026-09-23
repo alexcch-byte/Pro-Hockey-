@@ -115,6 +115,9 @@ public final class GameView: UIView {
         // Snapshot human touch inputs
         controls.snapshotInto(localPlayerInput)
 
+        // Poll physical game controllers (Xbox, PlayStation, MFi, Switch)
+        GameControllerManager.shared.update(dt: dt, into: localPlayerInput)
+
         var inputs: [PlayerInput?] = [nil, nil]
         if world.isHuman(localTeamIndex) {
             inputs[localTeamIndex] = localPlayerInput
@@ -123,9 +126,21 @@ public final class GameView: UIView {
         // Run simulation step
         simulation.step(dt: dt, inputs: inputs)
 
-        // Audio dispatch
+        // Audio and haptic dispatch & achievements
         for event in world.events {
             SoundManager.shared.handle(event)
+            HapticManager.shared.handle(event)
+
+            switch event {
+            case .glassShatter:
+                GameCenterManager.shared.reportAchievement(id: AchievementID.glassShatter)
+            case .onFire:
+                GameCenterManager.shared.reportAchievement(id: AchievementID.onFireSurge)
+            case .goal:
+                GameCenterManager.shared.reportAchievement(id: AchievementID.firstGoal)
+            default:
+                break
+            }
         }
 
         // Skate sounds during high acceleration / speed
@@ -144,6 +159,9 @@ public final class GameView: UIView {
 
         if world.phase == .gameOver {
             let winner = world.teams[0].score > world.teams[1].score ? 0 : 1
+            if winner == localTeamIndex && world.teams[1 - localTeamIndex].score == 0 {
+                GameCenterManager.shared.reportAchievement(id: AchievementID.shutout)
+            }
             onGameOver?(winner, world.teams[0].score, world.teams[1].score)
         }
 

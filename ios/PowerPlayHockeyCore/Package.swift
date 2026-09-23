@@ -8,6 +8,11 @@ let package = Package(
         .library(name: "PowerPlayHockeyCore", targets: ["PowerPlayHockeyCore"])
     ],
     targets: [
-        .target(name: "PowerPlayHockeyCore")
+        .target(
+            name: "PowerPlayHockeyCore",
+            resources: [
+                .process("Resources")
+            ]
+        )
     ]
 )

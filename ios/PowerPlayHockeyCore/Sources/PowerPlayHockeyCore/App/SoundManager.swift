@@ -5,11 +5,10 @@ import AVFoundation
 
 /// In-match audio effects: puck, boards, posts, hits, saves, whistle, horn,
 /// crowd, skate scrapes, organ, and 8-bit jingles.
-/// Driven by GameEvent notifications from Simulation.
-final class SoundManager {
-    static let shared = SoundManager()
+public final class SoundManager {
+    public static let shared = SoundManager()
 
-    var volume: Float {
+    public var volume: Float {
         get { Float(Prefs.sfxVolume()) / 100.0 }
         set {
             Prefs.setSfxVolume(Int((newValue * 100).rounded()))
@@ -17,7 +16,7 @@ final class SoundManager {
         }
     }
 
-    var enabled: Bool { volume > 0 }
+    public var enabled: Bool { volume > 0 }
 
     #if canImport(AVFoundation)
     private var players: [String: [AVAudioPlayer]] = [:]
@@ -90,7 +89,7 @@ final class SoundManager {
         1.0 + (rng.nextFloat() * 2.0 - 1.0) * amount
     }
 
-    func handle(_ event: GameEvent) {
+    public func handle(_ event: GameEvent) {
         guard enabled else { return }
         switch event {
         case .shot:
@@ -155,14 +154,14 @@ final class SoundManager {
         }
     }
 
-    func playSkate(intensity: Float) {
+    public func playSkate(intensity: Float) {
         skateToggle = !skateToggle
         let name = skateToggle ? "skate1" : "skate2"
         let v = min(max(0.12 + 0.3 * intensity, 0.1), 0.45)
         playSound(name, level: v, rate: jitter(0.12))
     }
 
-    func playResult(won: Bool?) {
+    public func playResult(won: Bool?) {
         switch won {
         case true: playSound("jingle_win", level: 0.95)
         case false: playSound("jingle_lose", level: 0.9)
@@ -170,7 +169,7 @@ final class SoundManager {
         }
     }
 
-    func startCrowd() {
+    public func startCrowd() {
         #if canImport(AVFoundation)
         guard enabled, crowdPlayer == nil else { return }
         if let url = findSoundURL(name: "crowd_loop"), let player = try? AVAudioPlayer(contentsOf: url) {
@@ -182,18 +181,18 @@ final class SoundManager {
         #endif
     }
 
-    func stopCrowd() {
+    public func stopCrowd() {
         #if canImport(AVFoundation)
         crowdPlayer?.stop()
         crowdPlayer = nil
         #endif
     }
 
-    func playClick() {
+    public func playClick() {
         playSound("button_click", level: 0.6)
     }
 
-    func release() {
+    public func release() {
         stopCrowd()
         #if canImport(AVFoundation)
         players.removeAll()

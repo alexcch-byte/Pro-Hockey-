@@ -4,13 +4,13 @@ import AVFoundation
 #endif
 
 /// Looping background music engine with menu/game tracks, volume management, and ducking.
-final class MusicManager {
-    static let shared = MusicManager()
+public final class MusicManager {
+    public static let shared = MusicManager()
 
-    static let menuVolume: Float = 0.85
-    static let gameVolume: Float = 0.55
+    public static let menuVolume: Float = 0.85
+    public static let gameVolume: Float = 0.55
 
-    var userVolume: Float {
+    public var userVolume: Float {
         get { Float(Prefs.musicVolume()) / 100.0 }
         set {
             Prefs.setMusicVolume(Int((newValue * 100).rounded()))
@@ -23,7 +23,7 @@ final class MusicManager {
         }
     }
 
-    var enabled: Bool { userVolume > 0 }
+    public var enabled: Bool { userVolume > 0 }
 
     #if canImport(AVFoundation)
     private var player: AVAudioPlayer?
@@ -32,23 +32,23 @@ final class MusicManager {
     private var trackVolume: Float = 1.0
     private var menuRefs = 0
 
-    init() {}
+    public init() {}
 
-    func menuStarted() {
+    public func menuStarted() {
         menuRefs += 1
         if menuRefs == 1 {
             play("music_menu", volume: Self.menuVolume)
         }
     }
 
-    func menuStopped() {
+    public func menuStopped() {
         menuRefs = max(0, menuRefs - 1)
         if menuRefs == 0 {
             stop()
         }
     }
 
-    func play(_ name: String, volume: Float) {
+    public func play(_ name: String, volume: Float) {
         guard enabled else { return }
         trackVolume = volume
         if currentTrack == name {
@@ -86,19 +86,19 @@ final class MusicManager {
         #endif
     }
 
-    func pause() {
+    public func pause() {
         #if canImport(AVFoundation)
         player?.pause()
         #endif
     }
 
-    func resume() {
+    public func resume() {
         #if canImport(AVFoundation)
         if enabled { player?.play() }
         #endif
     }
 
-    func stop() {
+    public func stop() {
         #if canImport(AVFoundation)
         player?.stop()
         player = nil
@@ -106,7 +106,7 @@ final class MusicManager {
         currentTrack = ""
     }
 
-    func duck(level: Float, duration: Double) {
+    public func duck(level: Float, duration: Double) {
         applyVolume(trackVolume * level)
         DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
             guard let self = self else { return }
