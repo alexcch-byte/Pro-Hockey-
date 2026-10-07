@@ -69,6 +69,9 @@ class GameView @JvmOverloads constructor(
     private var pendingOver: Runnable? = null
     private var pendingOverAt = 0L
 
+    /** True while the finished match is on screen (used to drop stale result-dialog retries). */
+    fun isMatchOver(): Boolean = matchOverReported && world?.phase == Phase.GAME_OVER
+
     private fun cancelPendingOver() {
         pendingOver?.let { removeCallbacks(it) }
         pendingOver = null

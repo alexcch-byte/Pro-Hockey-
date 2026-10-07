@@ -1701,6 +1701,7 @@ class Renderer(private val density: Float) {
     }
 
     fun release() {
+        hud.release()
         crowd?.recycle()
         crowd = null
         winterLandscape?.recycle()
