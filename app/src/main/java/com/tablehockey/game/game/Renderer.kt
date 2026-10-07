@@ -549,6 +549,7 @@ class Renderer(private val density: Float) {
             faceoffPulse.alpha = 200
             canvas.drawCircle(world.faceoffX, world.faceoffY, r, faceoffPulse)
         }
+        hud.drawCelebrationGround(canvas, world, camera)  // goal ring / net glow sit on the ice, under the players
         for (s in world.allSkaters) {
             if (!world.isShootout || kotlin.math.abs(s.y) < 45f) drawShadow(canvas, s)
         }

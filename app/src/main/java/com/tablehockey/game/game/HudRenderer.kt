@@ -181,6 +181,37 @@ class HudRenderer(private val density: Float) {
     private val statL = arrayOf("", "", "")
     private val statR = arrayOf("", "", "")
     private val statFrac = FloatArray(3)
+    private var statP0 = 0f
+    private var statP1 = 0f
+    private var statRows = 3
+    private val rayPath = Path()
+    private val ellipse = RectF()
+    private val goldGlowShader: Shader = RadialGradient(0f, 0f, 1f,
+        intArrayOf(Color.argb(120, 255, 214, 90), Color.argb(50, 255, 190, 60), Color.argb(0, 255, 180, 40)),
+        floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
+    private val tFill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val tStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
+    private val tRect = RectF()
+    private fun lg(x0: Float, y0: Float, x1: Float, y1: Float, cols: IntArray, pos: FloatArray? = null): Shader =
+        LinearGradient(x0, y0, x1, y1, cols, pos, Shader.TileMode.CLAMP)
+    private val shPedTop by lazy { lg(0f, 0.92f, 0f, 1.08f, intArrayOf(0xFF566074.toInt(), 0xFF2A3242.toInt(), 0xFF141A26.toInt())) }
+    private val shPedBot by lazy { lg(0f, 1.08f, 0f, 1.18f, intArrayOf(0xFF3A4458.toInt(), 0xFF0E121B.toInt())) }
+    private val shHandle by lazy { lg(0f, -0.9f, 0f, 0.1f, intArrayOf(0xFFFFE08A.toInt(), 0xFFD97706.toInt())) }
+    private val shBody by lazy {
+        lg(-0.55f, 0f, 0.55f, 0f,
+            intArrayOf(0xFF8A3B0C.toInt(), 0xFFF59E0B.toInt(), 0xFFFFF6C7.toInt(), 0xFFFBBF24.toInt(), 0xFFB45309.toInt(), 0xFF6B2D0A.toInt()),
+            floatArrayOf(0f, 0.22f, 0.38f, 0.58f, 0.82f, 1f))
+    }
+    private val shBodyV by lazy {
+        lg(0f, -1f, 0f, 0.95f, intArrayOf(Color.argb(70, 255, 255, 255), Color.argb(0, 0, 0, 0), Color.argb(90, 40, 15, 0)), floatArrayOf(0f, 0.45f, 1f))
+    }
+    private val shKnob by lazy { lg(-0.2f, 0f, 0.2f, 0f, intArrayOf(0xFFB45309.toInt(), 0xFFFFF0A8.toInt(), 0xFFB45309.toInt())) }
+    private val shRim by lazy { lg(-0.55f, 0f, 0.55f, 0f, intArrayOf(0xFFB45309.toInt(), 0xFFFFF6C7.toInt(), 0xFFB45309.toInt())) }
+    private val shHot1 by lazy { RadialGradient(-0.3f, -0.55f, 0.22f, Color.argb(210, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP) }
+    private val shHot2 by lazy { RadialGradient(0f, 0.34f, 0.2f, Color.argb(190, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP) }
+    private val shFade by lazy { lg(0f, 1.18f, 0f, 1.8f, intArrayOf(Color.argb(120, 255, 255, 255), Color.argb(0, 255, 255, 255))) }
+    private val fadePaint by lazy { Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN); shader = shFade } }
+    private val trophyBounds = RectF(-1.2f, 1.18f, 1.2f, 1.8f)
     private val statLabel = arrayOf("GOALS", "SHOTS ON GOAL", "SHOOTING %")
     private val redGlow: Shader = RadialGradient(0f, 0f, 1f,
         intArrayOf(Color.argb(255, 255, 70, 50), Color.argb(130, 255, 30, 20), Color.argb(0, 255, 0, 0)),
@@ -194,6 +225,13 @@ class HudRenderer(private val density: Float) {
             intArrayOf(Color.argb(95, 0, 0, 0), Color.argb(0, 0, 0, 0), Color.argb(0, 0, 0, 0), Color.argb(95, 0, 0, 0)),
             floatArrayOf(0f, 0.2f, 0.8f, 1f), Shader.TileMode.CLAMP)
         pVignette.shader = vignetteShader
+        rayPath.reset()
+        val rr = max(sw, sh)
+        for (i in 0 until 12) {
+            val a0 = i * (PI / 6).toFloat()
+            val a1 = a0 + (PI / 12).toFloat()
+            rayPath.moveTo(0f, 0f); rayPath.lineTo(cos(a0) * rr, sin(a0) * rr); rayPath.lineTo(cos(a1) * rr, sin(a1) * rr); rayPath.close()
+        }
     }
 
     // ---------------------------------------------------------------- update
@@ -324,11 +362,14 @@ class HudRenderer(private val density: Float) {
     private fun buildStats(w: World) {
         val g0 = w.teams[0].score; val g1 = w.teams[1].score
         val s0 = w.teams[0].shots; val s1 = w.teams[1].shots
-        val p0 = if (s0 > 0) g0 * 100 / s0 else 0
-        val p1 = if (s1 > 0) g1 * 100 / s1 else 0
+        val p0 = if (s0 > 0) min(100, g0 * 100 / s0) else 0
+        val p1 = if (s1 > 0) min(100, g1 * 100 / s1) else 0
         statL[0] = g0.toString(); statR[0] = g1.toString(); statFrac[0] = frac(g0, g1)
         statL[1] = s0.toString(); statR[1] = s1.toString(); statFrac[1] = frac(s0, s1)
-        statL[2] = "$p0%"; statR[2] = "$p1%"; statFrac[2] = frac(p0, p1)
+        statL[2] = "$p0%"; statR[2] = "$p1%"
+        statP0 = p0 / 100f; statP1 = p1 / 100f
+        // shots are not synced to network clients; with no shot data only the goals row is meaningful
+        statRows = if (s0 + s1 == 0) 1 else 3
     }
 
     private fun frac(a: Int, b: Int) = if (a + b <= 0) 0.5f else a.toFloat() / (a + b)
@@ -337,90 +378,73 @@ class HudRenderer(private val density: Float) {
         trophyBmp?.recycle(); trophyBmp = null; trophyFor = null
     }
 
-    /** Full trophy + pedestal in unit space (x -1.15..1.15, y -1.12..1.18); floor line at y = 1.18. */
+    /** Full trophy + pedestal in unit space (x -1.15..1.15, y -1.12..1.18); floor line at y = 1.18. Build-time only. */
     private fun drawTrophyVec(c: Canvas, info: TeamInfo) {
-        val fill = Paint(Paint.ANTI_ALIAS_FLAG)
-        val st = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
-        val rr = RectF()
-        // pedestal: two steps with a brushed-metal gradient and a team plate
-        fill.shader = LinearGradient(0f, 0.92f, 0f, 1.08f, intArrayOf(0xFF566074.toInt(), 0xFF2A3242.toInt(), 0xFF141A26.toInt()), null, Shader.TileMode.CLAMP)
+        val fill = tFill
+        val st = tStroke
+        val rr = tRect
+        fill.shader = shPedTop
         rr.set(-0.8f, 0.92f, 0.8f, 1.08f); c.drawRoundRect(rr, 0.03f, 0.03f, fill)
-        fill.shader = LinearGradient(0f, 1.08f, 0f, 1.18f, intArrayOf(0xFF3A4458.toInt(), 0xFF0E121B.toInt()), null, Shader.TileMode.CLAMP)
+        fill.shader = shPedBot
         rr.set(-0.95f, 1.08f, 0.95f, 1.18f); c.drawRoundRect(rr, 0.03f, 0.03f, fill)
         fill.shader = null
+        st.shader = null; st.strokeCap = Paint.Cap.ROUND
         st.color = Color.argb(150, 255, 255, 255); st.strokeWidth = 0.025f
         c.drawLine(-0.78f, 0.93f, 0.78f, 0.93f, st)
         fill.color = info.primary; rr.set(-0.38f, 0.96f, 0.38f, 1.05f); c.drawRoundRect(rr, 0.02f, 0.02f, fill)
         fill.color = info.secondary; c.drawRect(-0.38f, 0.96f, 0.38f, 0.975f, fill)
-        // handles
         st.color = 0xFF6B2D0A.toInt(); st.strokeWidth = 0.2f; c.drawPath(trophyHandles, st)
-        st.shader = LinearGradient(0f, -0.9f, 0f, 0.1f, intArrayOf(0xFFFFE08A.toInt(), 0xFFD97706.toInt()), null, Shader.TileMode.CLAMP)
+        st.shader = shHandle
         st.strokeWidth = 0.12f; c.drawPath(trophyHandles, st)
         st.shader = null
         st.color = Color.argb(200, 255, 255, 255); st.strokeWidth = 0.025f
         c.drawPath(trophyHandles, st)
-        // body: horizontal metal banding, then vertical light falloff, then outline
-        fill.shader = LinearGradient(-0.55f, 0f, 0.55f, 0f,
-            intArrayOf(0xFF8A3B0C.toInt(), 0xFFF59E0B.toInt(), 0xFFFFF6C7.toInt(), 0xFFFBBF24.toInt(), 0xFFB45309.toInt(), 0xFF6B2D0A.toInt()),
-            floatArrayOf(0f, 0.22f, 0.38f, 0.58f, 0.82f, 1f), Shader.TileMode.CLAMP)
+        fill.shader = shBody
         c.drawPath(trophyBody, fill)
-        fill.shader = LinearGradient(0f, -1f, 0f, 0.95f,
-            intArrayOf(Color.argb(70, 255, 255, 255), Color.argb(0, 0, 0, 0), Color.argb(90, 40, 15, 0)),
-            floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP)
+        fill.shader = shBodyV
         c.drawPath(trophyBody, fill)
         fill.shader = null
         st.color = 0xFF5A2508.toInt(); st.strokeWidth = 0.04f; c.drawPath(trophyBody, st)
-        // stem knob
-        fill.shader = LinearGradient(-0.2f, 0f, 0.2f, 0f, intArrayOf(0xFFB45309.toInt(), 0xFFFFF0A8.toInt(), 0xFFB45309.toInt()), null, Shader.TileMode.CLAMP)
+        fill.shader = shKnob
         rr.set(-0.2f, 0.27f, 0.2f, 0.4f); c.drawOval(rr, fill)
-        fill.shader = null
-        // rim and dark opening
-        fill.shader = LinearGradient(-0.55f, 0f, 0.55f, 0f, intArrayOf(0xFFB45309.toInt(), 0xFFFFF6C7.toInt(), 0xFFB45309.toInt()), null, Shader.TileMode.CLAMP)
+        fill.shader = shRim
         rr.set(-0.56f, -1.04f, 0.56f, -0.86f); c.drawOval(rr, fill)
         fill.shader = null
         fill.color = 0xFF4A1D06.toInt(); rr.set(-0.47f, -1.0f, 0.47f, -0.9f); c.drawOval(rr, fill)
-        // team band with trim lines
         st.strokeCap = Paint.Cap.BUTT
         st.color = info.primary; st.strokeWidth = 0.14f; c.drawLine(-0.46f, -0.62f, 0.46f, -0.62f, st)
         st.color = info.secondary; st.strokeWidth = 0.03f
         c.drawLine(-0.47f, -0.7f, 0.47f, -0.7f, st); c.drawLine(-0.45f, -0.54f, 0.45f, -0.54f, st)
         st.strokeCap = Paint.Cap.ROUND
         fill.color = 0xFF92400E.toInt(); c.drawPath(starPath, fill)
-        // specular highlights
         st.color = Color.argb(215, 255, 255, 255); st.strokeWidth = 0.08f
         path.reset(); path.moveTo(-0.42f, -0.82f); path.quadTo(-0.5f, -0.4f, -0.27f, -0.05f)
         c.drawPath(path, st)
         st.color = Color.argb(140, 255, 255, 255); st.strokeWidth = 0.035f
         path.reset(); path.moveTo(0.36f, -0.8f); path.quadTo(0.4f, -0.45f, 0.24f, -0.12f)
         c.drawPath(path, st)
-        fill.shader = RadialGradient(-0.3f, -0.55f, 0.22f, Color.argb(210, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP)
+        fill.shader = shHot1
         c.drawCircle(-0.3f, -0.55f, 0.22f, fill)
-        fill.shader = RadialGradient(0f, 0.34f, 0.2f, Color.argb(190, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP)
+        fill.shader = shHot2
         c.drawCircle(0f, 0.34f, 0.2f, fill)
         fill.shader = null
     }
 
-    /** Pre-renders trophy, pedestal and floor reflection once per winner (not per frame). */
+    /** Pre-renders trophy, pedestal and floor reflection once per winner, at the size it is drawn. */
     private fun buildTrophy(info: TeamInfo): Bitmap {
-        val wPx = max(64, (dp(230f)).toInt())
-        val sc = wPx / 2.3f
         val yMin = -1.12f
-        val hPx = ((1.8f - yMin) * sc).toInt()
+        val hPx = max(96, dp(TROPHY_DP).toInt())
+        val sc = hPx / (1.8f - yMin)
+        val wPx = (2.3f * sc).toInt()
         val bmp = Bitmap.createBitmap(wPx, hPx, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         c.translate(wPx / 2f, -yMin * sc)
         c.scale(sc, sc)
-        // reflection first: flipped copy, faded out with a DST_IN gradient mask
-        val bounds = RectF(-1.2f, 1.18f, 1.2f, 1.8f)
-        val layer = c.saveLayer(bounds, null)
+        val layer = c.saveLayer(trophyBounds, null)
         c.save(); c.translate(0f, 2f * 1.18f); c.scale(1f, -1f)
         drawTrophyVec(c, info)
         c.restore()
-        val fade = Paint().apply {
-            xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_IN)
-            shader = LinearGradient(0f, 1.18f, 0f, 1.8f, Color.argb(120, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP)
-        }
-        c.drawRect(bounds, fade)
+        c.drawRect(trophyBounds, fadePaint)
         c.restoreToCount(layer)
         drawTrophyVec(c, info)
         return bmp
@@ -900,61 +924,114 @@ class HudRenderer(private val density: Float) {
 
     // ---------------------------------------------------------------- overlays
 
+    /** Projects a world-space circle at (wx, wy) of radius rw to a screen ellipse using only the camera mapping. */
+    private fun setGroundEllipse(cam: Camera, wx: Float, wy: Float, rw: Float) {
+        val cxp = cam.toScreenX(wx); val cyp = cam.toScreenY(wy)
+        val rx = abs(cam.toScreenX(wx + rw) - cxp)
+        val ry = abs(cam.toScreenY(wy + rw) - cyp)
+        ellipse.set(cxp - rx, cyp - ry, cxp + rx, cyp + ry)
+    }
+
+    private fun celebK(): Float = min((celebT / 0.3f).coerceIn(0f, 1f), ((celebDur - celebT) / 0.5f).coerceIn(0f, 1f))
+
     /**
-     * World-space beat first (net glow, goal light, shockwave, scorer ring and light cone), then the
-     * edge vignette and beams. Everything reads the camera and skater positions only.
+     * GROUND pass: called from the world pass before skaters and the puck are drawn, so these effects
+     * sit on the ice under the players. Draws in screen space through the camera mapping only.
      */
+    fun drawCelebrationGround(canvas: Canvas, w: World, cam: Camera) {
+        if (celebT < 0f) return
+        val t = celebT
+        val k = celebK()
+        val dir = w.teams[celebTeam].attackDir
+        val glX = dir * Rink.GOAL_LINE_X
+        canvas.save()
+        canvas.setMatrix(null)
+        // team-colour glow pooled on the ice in front of the net
+        setGroundEllipse(cam, glX - dir * 2f, 0f, 14f)
+        val gcx = ellipse.centerX(); val gcy = ellipse.centerY()
+        if (gcx > -ellipse.width() && gcx < sw + ellipse.width() && glowShader[celebTeam] != null) {
+            pGlow.shader = glowShader[celebTeam]
+            pGlow.alpha = (200 * k * (0.75f + 0.25f * sin(t * 6f))).toInt()
+            canvas.save(); canvas.translate(gcx, gcy); canvas.scale(ellipse.width() / 2f, ellipse.height() / 2f)
+            canvas.drawCircle(0f, 0f, 1f, pGlow)
+            canvas.restore()
+            // cage flash and net ripple: the net rectangle lights up and a ripple travels back through the mesh
+            val x0 = glX; val x1 = glX + dir * Rink.NET_DEPTH
+            val hw = Rink.NET_HALF_W
+            val flash = (1f - t / 1.1f).coerceIn(0f, 1f)
+            if (flash > 0f) {
+                path.reset()
+                path.moveTo(cam.toScreenX(x0), cam.toScreenY(-hw)); path.lineTo(cam.toScreenX(x1), cam.toScreenY(-hw))
+                path.lineTo(cam.toScreenX(x1), cam.toScreenY(hw)); path.lineTo(cam.toScreenX(x0), cam.toScreenY(hw)); path.close()
+                pFill.color = Color.argb((150 * flash * flash).toInt(), 255, 255, 255)
+                canvas.drawPath(path, pFill)
+                // ripple: three mesh lines bowing back, decaying
+                val amp = (flash * 1.4f) * sin(t * 26f)
+                pStroke.color = Color.argb((230 * flash).toInt(), 255, 255, 255)
+                pStroke.strokeWidth = dp(1.5f)
+                for (i in 0 until 3) {
+                    val yy = -hw + hw * (i + 1) * 0.5f
+                    val a = tmpLines
+                    val ox = x0 + dir * (Rink.NET_DEPTH * 0.5f + amp * (if (i == 1) 1f else 0.6f))
+                    a[i * 4] = cam.toScreenX(x0); a[i * 4 + 1] = cam.toScreenY(yy)
+                    a[i * 4 + 2] = cam.toScreenX(ox); a[i * 4 + 3] = cam.toScreenY(yy)
+                }
+                canvas.drawLines(tmpLines, 0, 12, pStroke)
+            }
+        }
+        // shockwave ring expanding along the ice from the goal line
+        if (t < 0.9f) {
+            setGroundEllipse(cam, glX, 0f, 2f + t * 16f)
+            pStroke.color = Color.argb((190 * (1f - t / 0.9f)).toInt(), 255, 255, 255)
+            pStroke.strokeWidth = dp(3f)
+            canvas.drawOval(ellipse, pStroke)
+        }
+        // scorer ring around the skater's feet
+        val sc = celebScorer
+        if (sc != null) {
+            setGroundEllipse(cam, sc.x, sc.y, 2.6f * (1f + 0.08f * sin(t * 8f)))
+            pFill.color = Color.argb((55 * k).toInt(), 255, 224, 71)
+            canvas.drawOval(ellipse, pFill)
+            pStroke.color = Color.argb((255 * k).toInt(), 253, 224, 71)
+            pStroke.strokeWidth = dp(3f)
+            canvas.drawOval(ellipse, pStroke)
+        }
+        canvas.restore()
+    }
+
+    /** SKY pass: after the world; goal lamp, scorer light cone, edge vignette, beams, flash, confetti. */
     fun drawCelebrationBack(canvas: Canvas, w: World, cam: Camera) {
         if (celebT >= 0f) {
             val t = celebT
-            val k = min((t / 0.3f).coerceIn(0f, 1f), ((celebDur - t) / 0.5f).coerceIn(0f, 1f))
-            val netX = w.teams[celebTeam].attackDir * (Rink.GOAL_LINE_X + 2f)
-            val gx = cam.toScreenX(netX)
-            val gy = cam.toScreenY(0f)
-            val gr = cam.scale * 15f
-            val onScreen = gx > -gr && gx < sw + gr
-            if (onScreen && glowShader[celebTeam] != null) {
-                pGlow.shader = glowShader[celebTeam]
-                pGlow.alpha = (255 * k * (0.7f + 0.3f * sin(t * 9f))).toInt()
-                canvas.save(); canvas.translate(gx, gy); canvas.scale(gr, gr)
+            val k = celebK()
+            val dir = w.teams[celebTeam].attackDir
+            // goal lamp mounted above the cage: goal-line centre lifted by a height measured in world feet
+            val lx = cam.toScreenX(dir * (Rink.GOAL_LINE_X + Rink.NET_DEPTH * 0.5f))
+            val ly = cam.toScreenY(0f) - cam.scale * 3.4f
+            val lr = cam.scale * 6f
+            if (t < 2.6f && lx > -lr && lx < sw + lr) {
+                val fo = ((2.6f - t) / 0.5f).coerceIn(0f, 1f)
+                val pulse = 0.5f + 0.5f * sin(t * 13f)
+                val inten = fo * min(1f, t / 0.12f) * (0.55f + 0.45f * pulse)
+                pGlow.shader = redGlow
+                pGlow.alpha = (200 * inten).toInt()
+                canvas.save(); canvas.translate(lx, ly); canvas.scale(lr, lr)
                 canvas.drawCircle(0f, 0f, 1f, pGlow)
                 canvas.restore()
-            }
-            if (onScreen && t < 2.4f) {
-                // goal light: red lamp flashing over the crease, plus an expanding shockwave ring
-                if ((t * 5f).toInt() % 2 == 0) {
-                    val lr = cam.scale * 6.5f
-                    pGlow.shader = redGlow
-                    pGlow.alpha = 235
-                    canvas.save(); canvas.translate(gx, gy); canvas.scale(lr, lr)
-                    canvas.drawCircle(0f, 0f, 1f, pGlow)
-                    canvas.restore()
-                    pFill.color = Color.argb(240, 255, 235, 230)
-                    canvas.drawCircle(gx, gy, cam.scale * 0.8f, pFill)
-                }
-                if (t < 0.9f) {
-                    pStroke.color = Color.argb((200 * (1f - t / 0.9f)).toInt(), 255, 255, 255)
-                    pStroke.strokeWidth = dp(3f)
-                    canvas.drawCircle(gx, gy, cam.scale * (2f + t * 16f), pStroke)
-                }
+                pFill.color = Color.argb((235 * inten).toInt(), 255, 236, 230)
+                canvas.drawCircle(lx, ly, cam.scale * 0.7f, pFill)
             }
             val sc = celebScorer
             if (sc != null) {
-                // spotlight cone and ground ring on the scorer
+                // faint light cone dropping onto the scorer (the ground ring is drawn under the players)
                 val sx = cam.toScreenX(sc.x)
                 val sy = cam.toScreenY(sc.y)
-                val rr = cam.scale * 3.0f * (1f + 0.08f * sin(t * 8f))
+                val rr = cam.scale * 2.6f
                 path.reset()
-                path.moveTo(sx - rr * 0.25f, sy - sh * 0.7f); path.lineTo(sx + rr * 0.25f, sy - sh * 0.7f)
-                path.lineTo(sx + rr, sy + rr * 0.3f); path.lineTo(sx - rr, sy + rr * 0.3f); path.close()
-                pFill.color = Color.argb((46 * k).toInt(), 255, 244, 200)
+                path.moveTo(sx - rr * 0.2f, sy - sh * 0.7f); path.lineTo(sx + rr * 0.2f, sy - sh * 0.7f)
+                path.lineTo(sx + rr * 0.9f, sy); path.lineTo(sx - rr * 0.9f, sy); path.close()
+                pFill.color = Color.argb((30 * k).toInt(), 255, 244, 200)
                 canvas.drawPath(path, pFill)
-                rect.set(sx - rr, sy - rr * 0.1f, sx + rr, sy + rr * 0.7f)
-                pFill.color = Color.argb((60 * k).toInt(), 255, 224, 71)
-                canvas.drawOval(rect, pFill)
-                pStroke.color = Color.argb((255 * k).toInt(), 253, 224, 71)
-                pStroke.strokeWidth = dp(3f)
-                canvas.drawOval(rect, pStroke)
             }
             if (celebLocal && !celebLight) {
                 pVignette.alpha = (255 * k).toInt()
@@ -971,8 +1048,9 @@ class HudRenderer(private val density: Float) {
                 pBeam.alpha = (255 * k).toInt()
                 canvas.drawPath(path, pBeam)
             }
-            if (t < 0.18f) {
-                pFill.color = Color.argb((120 * (1f - t / 0.18f)).toInt(), 255, 255, 255)
+            if (t < 0.35f) {
+                val f = 1f - t / 0.35f
+                pFill.color = Color.argb((60 * f * f).toInt(), 255, 255, 255)
                 canvas.drawRect(0f, 0f, sw, sh, pFill)
             }
         }
@@ -1120,25 +1198,23 @@ class HudRenderer(private val density: Float) {
                 canvas.save()
                 canvas.translate(trophyX, ty)
                 canvas.rotate(t * 14f)
-                path.reset()
-                val rr = max(sw, sh)
-                for (i in 0 until 12) {
-                    val a0 = i * (PI / 6).toFloat()
-                    val a1 = a0 + (PI / 12).toFloat()
-                    path.moveTo(0f, 0f); path.lineTo(cos(a0) * rr, sin(a0) * rr); path.lineTo(cos(a1) * rr, sin(a1) * rr); path.close()
-                }
                 pRays.color = Color.argb((34 * k).toInt(), 253, 224, 71)
-                canvas.drawPath(path, pRays)
+                canvas.drawPath(rayPath, pRays)
                 canvas.restore()
             }
             val bmp = trophyBmp
             if (bmp != null) {
                 val pop = max(0.01f, easeOutBack((t - 0.1f) / 0.6f))
-                val hh = dp(250f) * pop
+                val hh = dp(TROPHY_DP) * pop
                 val ww = hh * bmp.width / bmp.height
-                val bob = sin(t * 2f) * dp(3f)
-                // drop shadow glow under the pedestal
-                rect.set(trophyX - ww * 0.5f, ty - hh * 0.5f + bob, trophyX + ww * 0.5f, ty + hh * 0.5f + bob)
+                // soft gold glow behind the cup; the pedestal and reflection stay still
+                val gr = hh * 0.62f * (1f + 0.05f * sin(t * 2.5f))
+                pGlow.shader = goldGlowShader
+                pGlow.alpha = (255 * k).toInt()
+                canvas.save(); canvas.translate(trophyX, ty - hh * 0.12f); canvas.scale(gr, gr)
+                canvas.drawCircle(0f, 0f, 1f, pGlow)
+                canvas.restore()
+                rect.set(trophyX - ww * 0.5f, ty - hh * 0.5f, trophyX + ww * 0.5f, ty + hh * 0.5f)
                 bmpPaint.alpha = (255 * min(1f, k * 1.5f)).toInt()
                 canvas.drawBitmap(bmp, null, rect, bmpPaint)
             }
@@ -1166,7 +1242,7 @@ class HudRenderer(private val density: Float) {
         val cardIn = easeOut((t - 0.6f) / 0.5f)
         if (cardIn > 0f) {
             val cw = dp(310f)
-            val ch = dp(158f)
+            val ch = dp(62f) + statRows * dp(32f)
             val cl = px - cw / 2f
             val ct = top + dp(84f) + (1f - cardIn) * dp(24f)
             val a = (255 * cardIn).toInt()
@@ -1183,19 +1259,32 @@ class HudRenderer(private val density: Float) {
             val aw = pTextL.measureText(i1.abbr)
             canvas.drawText(i1.abbr, cl + cw - dp(44f) - aw, ct + dp(29f), pTextL)
             val barL = px - dp(86f); val barW = dp(172f)
-            for (r in 0..2) {
+            for (r in 0 until statRows) {
                 val ry = ct + dp(60f) + r * dp(32f)
                 pTextC.textSize = dp(11f); pTextC.color = Color.argb(a, 159, 179, 204)
                 canvas.drawText(statLabel[r], px, ry, pTextC)
                 val by = ry + dp(5f)
-                val f = statFrac[r] * cardIn
                 pFill.color = Color.argb(a, 30, 41, 59)
                 rect.set(barL, by, barL + barW, by + dp(7f)); canvas.drawRoundRect(rect, dp(3.5f), dp(3.5f), pFill)
-                pFill.color = i0.primary; pFill.alpha = a
-                rect.set(barL, by, barL + max(dp(4f), (barW - dp(2f)) * f), by + dp(7f)); canvas.drawRoundRect(rect, dp(3.5f), dp(3.5f), pFill)
-                pFill.color = i1.primary; pFill.alpha = a
-                val rl = barL + (barW - dp(2f)) * f + dp(2f)
-                rect.set(min(rl, barL + barW - dp(4f)), by, barL + barW, by + dp(7f)); canvas.drawRoundRect(rect, dp(3.5f), dp(3.5f), pFill)
+                if (r < 2) {
+                    // share of the two totals
+                    val f = statFrac[r] * cardIn
+                    pFill.color = i0.primary; pFill.alpha = a
+                    rect.set(barL, by, barL + max(dp(4f), (barW - dp(2f)) * f), by + dp(7f)); canvas.drawRoundRect(rect, dp(3.5f), dp(3.5f), pFill)
+                    pFill.color = i1.primary; pFill.alpha = a
+                    val rl = barL + (barW - dp(2f)) * f + dp(2f)
+                    rect.set(min(rl, barL + barW - dp(4f)), by, barL + barW, by + dp(7f)); canvas.drawRoundRect(rect, dp(3.5f), dp(3.5f), pFill)
+                } else {
+                    // absolute percentage (0-100) per team, each filling its own half outward from the centre
+                    val half = barW / 2f
+                    val bm = barL + half
+                    pFill.color = i0.primary; pFill.alpha = a
+                    rect.set(bm - half * statP0 * cardIn - dp(1f), by, bm - dp(1f), by + dp(7f)); canvas.drawRect(rect, pFill)
+                    pFill.color = i1.primary; pFill.alpha = a
+                    rect.set(bm + dp(1f), by, bm + half * statP1 * cardIn + dp(1f), by + dp(7f)); canvas.drawRect(rect, pFill)
+                    pFill.color = Color.argb(a, 120, 140, 170)
+                    canvas.drawRect(bm - dp(0.5f), by - dp(2f), bm + dp(0.5f), by + dp(9f), pFill)
+                }
                 pTextC.textSize = dp(15f); pTextC.color = Color.argb(a, 255, 255, 255)
                 canvas.drawText(statL[r], cl + dp(30f), by + dp(8f), pTextC)
                 canvas.drawText(statR[r], cl + cw - dp(30f), by + dp(8f), pTextC)
@@ -1223,6 +1312,7 @@ class HudRenderer(private val density: Float) {
 
     companion object {
         const val CEL_DUR = 3.1f
+        const val TROPHY_DP = 250f
         const val INTRO_DUR = 3.2f
     }
 }
