@@ -50,6 +50,11 @@
             android:screenOrientation="sensorLandscape" />
 
         <activity
+            android:name=".CustomiseTeamActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape" />
+
+        <activity
             android:name=".HowToPlayActivity"
             android:exported="false"
             android:screenOrientation="sensorLandscape" />

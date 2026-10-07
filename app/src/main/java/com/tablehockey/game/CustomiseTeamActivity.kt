@@ -1,0 +1,270 @@
+package com.tablehockey.game
+
+import android.graphics.Color
+import android.graphics.Paint
+import android.os.Bundle
+import android.view.View
+import android.view.ViewGroup
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
+import android.widget.LinearLayout
+import android.widget.Spinner
+import android.widget.TextView
+import androidx.appcompat.app.AppCompatActivity
+import com.tablehockey.game.game.MusicManager
+import com.tablehockey.game.model.CrestFrame
+import com.tablehockey.game.model.CrestType
+import com.tablehockey.game.model.JerseyPattern
+import com.tablehockey.game.model.TeamInfo
+import com.tablehockey.game.model.TeamStyle
+import com.tablehockey.game.model.TeamStyleStore
+import com.tablehockey.game.ui.ChipView
+import com.tablehockey.game.ui.FlowLayout
+import com.tablehockey.game.ui.TeamArt
+import com.tablehockey.game.ui.TeamPreviewView
+
+/**
+ * Customise Team: choose any club, edit uniform colours / pattern / helmet / socks and crest.
+ * Edits are a working copy; CONFIRM persists them in [TeamStyleStore], CANCEL discards.
+ * The saved primary/secondary colours feed [TeamInfo.byIndex] and so the in-game sprites.
+ */
+class CustomiseTeamActivity : AppCompatActivity() {
+
+    private var index = 0
+    private lateinit var base: TeamInfo
+    private lateinit var style: TeamStyle
+    private var tab = 0            // 0 = uniform, 1 = logo
+    private var logoColorTarget = 0 // 0 = foreground, 1 = background, 2 = outline
+
+    private lateinit var preview: TeamPreviewView
+    private lateinit var panel: LinearLayout
+    private lateinit var spinner: Spinner
+    private lateinit var tabUniform: TextView
+    private lateinit var tabLogo: TextView
+    private lateinit var btnFav: TextView
+    private val dot = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val dp get() = resources.displayMetrics.density
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        TeamStyleStore.ensureLoaded(this)
+        setContentView(R.layout.activity_customise_team)
+
+        preview = findViewById(R.id.preview)
+        panel = findViewById(R.id.panel)
+        spinner = findViewById(R.id.spinnerClub)
+        tabUniform = findViewById(R.id.tabUniform)
+        tabLogo = findViewById(R.id.tabLogo)
+        btnFav = findViewById(R.id.btnFav)
+
+        val adapter = ArrayAdapter(this, R.layout.item_spinner, TeamInfo.ALL.map { TeamInfo.label(it) }).apply {
+            setDropDownViewResource(R.layout.item_spinner_dropdown)
+        }
+        spinner.adapter = adapter
+        index = intent.getIntExtra(EXTRA_CLUB, TeamStyleStore.favourite(this))
+            .coerceIn(0, TeamInfo.ALL.size - 1)
+        spinner.setSelection(index)
+        spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (position != index) loadClub(position)
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+
+        findViewById<View>(R.id.btnPrev).setOnClickListener { step(-1) }
+        findViewById<View>(R.id.btnNext).setOnClickListener { step(1) }
+        tabUniform.setOnClickListener { tab = 0; refresh() }
+        tabLogo.setOnClickListener { tab = 1; refresh() }
+        findViewById<View>(R.id.btnCancel).setOnClickListener { finish() }
+        findViewById<View>(R.id.btnConfirm).setOnClickListener {
+            MusicManager.click(this)
+            if (style == TeamStyle.defaultFor(base)) TeamStyleStore.reset(this, base)
+            else TeamStyleStore.save(this, base, style)
+            finish()
+        }
+        findViewById<View>(R.id.btnReset).setOnClickListener {
+            style = TeamStyle.defaultFor(base)
+            refresh()
+        }
+        btnFav.setOnClickListener {
+            TeamStyleStore.setFavourite(this, index)
+            refresh()
+        }
+        loadClub(index)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        MusicManager.menuStarted(this)
+    }
+
+    override fun onStop() {
+        super.onStop()
+        MusicManager.menuStopped()
+    }
+
+    private fun step(delta: Int) {
+        val n = TeamInfo.ALL.size
+        spinner.setSelection((index + delta + n) % n)
+    }
+
+    private fun loadClub(i: Int) {
+        index = i
+        base = TeamInfo.ALL[i]
+        style = TeamStyleStore.styleFor(base)
+        refresh()
+    }
+
+    private fun edit(s: TeamStyle) {
+        style = s
+        refresh()
+    }
+
+    private fun refresh() {
+        preview.team = base
+        preview.style = style
+        tabUniform.setBackgroundResource(if (tab == 0) R.drawable.tab_on else R.drawable.tab_off)
+        tabLogo.setBackgroundResource(if (tab == 1) R.drawable.tab_on else R.drawable.tab_off)
+        tabUniform.setTextColor(if (tab == 0) 0xFF0B1622.toInt() else Color.WHITE)
+        tabLogo.setTextColor(if (tab == 1) 0xFF0B1622.toInt() else Color.WHITE)
+        btnFav.text = getString(if (TeamStyleStore.favourite(this) == index) R.string.customise_fav_on else R.string.customise_fav)
+        panel.removeAllViews()
+        if (tab == 0) buildUniformTab() else buildLogoTab()
+    }
+
+    // ------------------------------------------------------------------ tabs
+
+    private fun buildUniformTab() {
+        addLabel("Jersey colour")
+        addSwatches(style.primary) { edit(style.copy(primary = it)) }
+        addLabel("Stripe colour")
+        addSwatches(style.secondary) { edit(style.copy(secondary = it)) }
+        addLabel("Trim colour")
+        addSwatches(style.trim) { edit(style.copy(trim = it)) }
+        addLabel("Pattern")
+        val flow = newFlow()
+        for (p in JerseyPattern.values()) {
+            val chip = ChipView(this, 56) { c, cx, cy, r -> TeamArt.drawPatternTile(c, cx, cy, r * 1.05f, style, p) }
+            chip.chosen = style.pattern == p
+            chip.contentDescription = p.label
+            chip.setOnClickListener { edit(style.copy(pattern = p)) }
+            flow.addView(chip, chipParams())
+        }
+        addLabel("Helmet")
+        addSwatches(style.helmet) { edit(style.copy(helmet = it)) }
+        addLabel("Socks")
+        addSwatches(style.sock) { edit(style.copy(sock = it)) }
+    }
+
+    private fun buildLogoTab() {
+        addLabel("Foreground")
+        val emblems = newFlow()
+        for (t in CrestType.values()) {
+            val chip = ChipView(this, 64) { c, cx, cy, r ->
+                TeamArt.drawCrest(c, cx, cy, r * 1.25f, style.copy(crest = t), base.abbr)
+            }
+            chip.chosen = style.crest == t
+            chip.contentDescription = t.label
+            chip.setOnClickListener { edit(style.copy(crest = t)) }
+            emblems.addView(chip, chipParams())
+        }
+        addLabel("Background")
+        val frames = newFlow()
+        for (f in CrestFrame.values()) {
+            val chip = ChipView(this, 64) { c, cx, cy, r ->
+                TeamArt.drawCrest(c, cx, cy, r * 1.25f, style.copy(frame = f), base.abbr)
+            }
+            chip.chosen = style.frame == f
+            chip.contentDescription = f.label
+            chip.setOnClickListener { edit(style.copy(frame = f)) }
+            frames.addView(chip, chipParams())
+        }
+
+        // Three colour targets, like the Foreground / Background / Outline boxes in the reference.
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val names = arrayOf("Foreground", "Background", "Outline")
+        val colors = intArrayOf(style.crestFg, style.crestBg, style.crestOutline)
+        for (k in 0..2) {
+            val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            col.addView(smallLabel(names[k]))
+            val chip = ChipView(this, 56) { c, cx, cy, r -> fillDot(c, cx, cy, r * 1.15f, colors[k]) }
+            chip.chosen = logoColorTarget == k
+            chip.setOnClickListener { logoColorTarget = k; refresh() }
+            col.addView(chip)
+            row.addView(col, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                marginEnd = (14 * dp).toInt()
+            })
+        }
+        addLabel("Logo colours")
+        panel.addView(row)
+        addSwatches(colors[logoColorTarget]) {
+            edit(when (logoColorTarget) {
+                0 -> style.copy(crestFg = it)
+                1 -> style.copy(crestBg = it)
+                else -> style.copy(crestOutline = it)
+            })
+        }
+    }
+
+    // ------------------------------------------------------------------ helpers
+
+    private fun addLabel(s: String) {
+        val t = smallLabel(s)
+        (t.layoutParams as? ViewGroup.MarginLayoutParams)?.topMargin = (8 * dp).toInt()
+        panel.addView(t)
+    }
+
+    private fun smallLabel(s: String) = TextView(this).apply {
+        text = s.uppercase()
+        setTextColor(0xFF33475B.toInt())
+        textSize = 12f
+        letterSpacing = 0.08f
+        typeface = android.graphics.Typeface.create("sans-serif-condensed", android.graphics.Typeface.BOLD)
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = (6 * dp).toInt()
+            bottomMargin = (3 * dp).toInt()
+        }
+    }
+
+    private fun newFlow(): FlowLayout {
+        val f = FlowLayout(this)
+        panel.addView(f, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        return f
+    }
+
+    private fun chipParams() = ViewGroup.MarginLayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+        val m = (3 * dp).toInt()
+        setMargins(m, m, m, m)
+    }
+
+    private fun fillDot(c: android.graphics.Canvas, cx: Float, cy: Float, r: Float, color: Int) {
+        dot.style = Paint.Style.FILL
+        dot.color = color
+        c.drawCircle(cx, cy, r, dot)
+        dot.style = Paint.Style.STROKE
+        dot.strokeWidth = 1.5f * dp
+        dot.color = 0x44000000
+        c.drawCircle(cx, cy, r, dot)
+    }
+
+    private fun addSwatches(current: Int, onPick: (Int) -> Unit) {
+        val flow = newFlow()
+        val list = (listOf(base.primary, base.secondary) + PALETTE).distinct()
+        for (col in list) {
+            val chip = ChipView(this, 38) { c, cx, cy, r -> fillDot(c, cx, cy, r * 1.2f, col) }
+            chip.chosen = col == current
+            chip.setOnClickListener { onPick(col) }
+            flow.addView(chip, chipParams())
+        }
+    }
+
+    companion object {
+        const val EXTRA_CLUB = "club_index"
+
+        private val PALETTE: List<Int> = listOf(
+            "#F8FAFC", "#111111", "#374151", "#9CA3AF", "#C8102E", "#7F1D1D", "#EA580C", "#F5D130",
+            "#FDE047", "#0B6E3A", "#14B8A6", "#7DD3FC", "#1D4ED8", "#1C2E5A", "#4B2E83", "#F472B6",
+            "#7C4A21", "#F59E0B"
+        ).map { Color.parseColor(it) }
+    }
+}

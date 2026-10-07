@@ -17,4 +17,12 @@
     <color name="text_primary">#F4F7FA</color>
     <color name="text_secondary">#9FB3C8</color>
     <color name="button_bg">#173A5E</color>
+
+    <color name="hx_yellow">#F5E11B</color>
+    <color name="hx_yellow_dark">#C9B400</color>
+    <color name="hx_red">#D01F2E</color>
+    <color name="hx_red_dark">#8E111C</color>
+    <color name="hx_ink">#0B1622</color>
+    <color name="hx_panel">#E9EDF2</color>
+    <color name="hx_tab_off">#16283C</color>
 </resources>

@@ -28,8 +28,10 @@ class MatchSettingsActivity : AppCompatActivity() {
         }
         spinnerHome.adapter = adapter
         spinnerAway.adapter = adapter
-        spinnerHome.setSelection(TeamInfo.DEFAULT_HOME)
-        spinnerAway.setSelection(TeamInfo.DEFAULT_AWAY)
+        com.tablehockey.game.model.TeamStyleStore.ensureLoaded(this)
+        val favourite = com.tablehockey.game.model.TeamStyleStore.favourite(this)
+        spinnerHome.setSelection(favourite)
+        spinnerAway.setSelection(if (favourite == TeamInfo.DEFAULT_AWAY) TeamInfo.DEFAULT_HOME else TeamInfo.DEFAULT_AWAY)
 
         val radioPeriod = findViewById<RadioGroup>(R.id.radioPeriodLength)
         val radioDifficulty = findViewById<RadioGroup>(R.id.radioDifficulty)

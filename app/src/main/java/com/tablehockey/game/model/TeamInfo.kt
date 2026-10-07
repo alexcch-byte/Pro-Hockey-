@@ -14,7 +14,9 @@ data class TeamInfo(
     val primary: Int,
     val secondary: Int,
     val text: Int,
-    val league: String = LEAGUE_PRO
+    val league: String = LEAGUE_PRO,
+    /** Extra cosmetics from the Customise Team screen; null for stock clubs. */
+    val style: TeamStyle? = null
 ) : Serializable {
     val fullName: String get() = if (city.isEmpty()) name else "$city $name"
 
@@ -60,7 +62,7 @@ data class TeamInfo(
             TeamInfo("Toronto", "Pilots", "TOR", Color.parseColor("#1E3A8A"), Color.parseColor("#93C5FD"), Color.WHITE)
         )
 
-        fun byIndex(i: Int): TeamInfo = ALL[i.coerceIn(0, ALL.size - 1)]
+        fun byIndex(i: Int): TeamInfo = TeamStyleStore.apply(ALL[i.coerceIn(0, ALL.size - 1)])
 
         /** Index of the default home club (Glenlake Hawks). */
         val DEFAULT_HOME: Int = ALL.indexOfFirst { it.city == "Glenlake" }.coerceAtLeast(0)

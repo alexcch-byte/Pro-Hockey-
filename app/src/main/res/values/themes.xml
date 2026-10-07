@@ -27,6 +27,76 @@
         <item name="cornerRadius">14dp</item>
     </style>
 
+    <!-- Main menu tiles: clickable TextViews so the custom backgrounds are not tinted away -->
+    <style name="MenuTile">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">48dp</item>
+        <item name="android:layout_marginBottom">6dp</item>
+        <item name="android:background">@drawable/btn_menu</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:paddingStart">20dp</item>
+        <item name="android:paddingEnd">14dp</item>
+        <item name="android:paddingBottom">4dp</item>
+        <item name="android:drawableEnd">@drawable/ic_chevron</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textSize">17sp</item>
+        <item name="android:textStyle">bold|italic</item>
+        <item name="android:fontFamily">sans-serif-condensed</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:letterSpacing">0.06</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+
+    <style name="MenuTile.Primary">
+        <item name="android:layout_height">66dp</item>
+        <item name="android:layout_marginBottom">10dp</item>
+        <item name="android:background">@drawable/btn_menu_primary</item>
+        <item name="android:textColor">@color/hx_ink</item>
+        <item name="android:textSize">26sp</item>
+        <item name="android:drawableEnd">@null</item>
+    </style>
+
+    <style name="BarButton">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">44dp</item>
+        <item name="android:minWidth">150dp</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingStart">24dp</item>
+        <item name="android:paddingEnd">24dp</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:textStyle">bold|italic</item>
+        <item name="android:fontFamily">sans-serif-condensed</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:letterSpacing">0.06</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+
+    <style name="BarButton.Red">
+        <item name="android:background">@drawable/btn_red</item>
+        <item name="android:textColor">@color/text_primary</item>
+    </style>
+
+    <style name="BarButton.Yellow">
+        <item name="android:background">@drawable/btn_yellow</item>
+        <item name="android:textColor">@color/hx_ink</item>
+    </style>
+
+    <style name="TabLabel">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">40dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:fontFamily">sans-serif-condensed</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:letterSpacing">0.06</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+
     <style name="HelpRow">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
