@@ -32,7 +32,7 @@ class TouchControls(private val density: Float) {
     var dekeX = 0f; var dekeY = 0f; var dekeR = 38f * density
     @Volatile var dekeDown = false
     private var dekePointer = -1
-    private var dekeTapTime = 0L
+    private var dekeTapReadyAt = 0L
     @Volatile var dekeEnabled = true
     @Volatile var shootDown = false
     @Volatile var passDown = false
@@ -54,6 +54,7 @@ class TouchControls(private val density: Float) {
 
     companion object {
         const val CHARGE_SECONDS = 0.75f
+        const val DEKE_TAP_LOCKOUT_MS = 600L
     }
 
     fun layout(w: Int, h: Int) {
@@ -71,8 +72,8 @@ class TouchControls(private val density: Float) {
 
     /** 0 when the DEKE button is ready, otherwise the fraction of its short lockout still to run. */
     fun dekeCooldownFrac(): Float {
-        val left = dekeCooldownUntil - SystemClock.elapsedRealtime()
-        return if (left <= 0L) 0f else (left / 500f).coerceIn(0f, 1f)
+        val left = dekeTapReadyAt - SystemClock.elapsedRealtime()
+        return if (left <= 0L) 0f else (left / DEKE_TAP_LOCKOUT_MS.toFloat()).coerceIn(0f, 1f)
     }
 
     fun currentCharge(): Float {
@@ -152,8 +153,12 @@ class TouchControls(private val density: Float) {
             dekePointer = id
             dekeDown = true
             // Re-uses the existing deke input (same one the joystick flick sets); no gameplay change.
-            synchronized(lock) { input.deke = true }
-            dekeCooldownUntil = SystemClock.elapsedRealtime() + 500L
+            // The button has its own lockout (what the ring shows) and leaves the flick lockout alone.
+            val now = SystemClock.elapsedRealtime()
+            if (now >= dekeTapReadyAt) {
+                synchronized(lock) { input.deke = true }
+                dekeTapReadyAt = now + DEKE_TAP_LOCKOUT_MS
+            }
             return
         }
         if (x < screenW * 0.5f && y > topExclusion && joyPointer == -1) {

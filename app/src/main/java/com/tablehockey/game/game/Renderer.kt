@@ -42,6 +42,9 @@ class Renderer(private val density: Float) {
     private val rinkPath = Path().apply { addRoundRect(rinkRect, Rink.CORNER_R, Rink.CORNER_R, Path.Direction.CW) }
     private val tmpRect = RectF()
     private val hud = HudRenderer(density)
+
+    /** Set by the view while paused so HUD animations (goal band, splash, trophy) freeze. */
+    @Volatile var hudFrozen = false
     private val tmpPath = Path()
 
     private var crowd: Bitmap? = null
@@ -563,8 +566,8 @@ class Renderer(private val density: Float) {
         }
         canvas.restore()
 
-        hud.update(world, localTeam, dt, camera.screenW, camera.screenH)
-        hud.drawCelebrationBack(canvas, world)
+        hud.update(world, localTeam, if (hudFrozen) 0f else dt, camera.screenW, camera.screenH)
+        hud.drawCelebrationBack(canvas, world, camera)
         hud.drawScoreboard(canvas, world)
         drawShootoutControls(canvas, world, localTeam)
         hud.drawBanner(canvas, world)
