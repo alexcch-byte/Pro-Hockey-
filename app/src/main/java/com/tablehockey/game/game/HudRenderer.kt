@@ -17,6 +17,7 @@ import java.util.Random
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
@@ -36,6 +37,7 @@ class HudRenderer(private val density: Float) {
 
     private val K_92400E = Color.parseColor("#92400E")
     private val K_FDE68A = Color.parseColor("#FDE68A")
+    private val K_1B2230 = Color.parseColor("#1B2230")
     private val K_0B1426 = Color.parseColor("#0B1426")
     private val K_22C55E = Color.parseColor("#22C55E")
     private val K_2563EB = Color.parseColor("#2563EB")
@@ -924,19 +926,34 @@ class HudRenderer(private val density: Float) {
 
     // ---------------------------------------------------------------- overlays
 
-    /** Projects a world-space circle at (wx, wy) of radius rw to a screen ellipse using only the camera mapping. */
-    private fun setGroundEllipse(cam: Camera, wx: Float, wy: Float, rw: Float) {
-        val cxp = cam.toScreenX(wx); val cyp = cam.toScreenY(wy)
-        val rx = abs(cam.toScreenX(wx + rw) - cxp)
-        val ry = abs(cam.toScreenY(wy + rw) - cyp)
-        ellipse.set(cxp - rx, cyp - ry, cxp + rx, cyp + ry)
+    // Ground-pass projection. The ground pass is drawn under the world's own canvas transform (so camera
+    // shake and any future projection set up by Camera.apply stay in sync with the ice and skaters), which
+    // means "projecting" a world point is the identity. If the camera later stops expressing its view as a
+    // canvas matrix, this is the one function to change: write the drawing-space coordinates to pjx/pjy.
+    private var pjx = 0f
+    private var pjy = 0f
+    private fun project(wx: Float, wy: Float) { pjx = wx; pjy = wy }
+
+    private fun pathMove(wx: Float, wy: Float) { project(wx, wy); path.moveTo(pjx, pjy) }
+    private fun pathLine(wx: Float, wy: Float) { project(wx, wy); path.lineTo(pjx, pjy) }
+    private fun pathQuad(cx: Float, cy: Float, wx: Float, wy: Float) {
+        project(cx, cy); val qx = pjx; val qy = pjy
+        project(wx, wy); path.quadTo(qx, qy, pjx, pjy)
+    }
+
+    /** Projects a world-space circle at (wx, wy) of radius rw into [ellipse]. */
+    private fun setGroundEllipse(wx: Float, wy: Float, rw: Float) {
+        project(wx - rw, wy - rw); val x0 = pjx; val y0 = pjy
+        project(wx + rw, wy + rw)
+        ellipse.set(min(x0, pjx), min(y0, pjy), max(x0, pjx), max(y0, pjy))
     }
 
     private fun celebK(): Float = min((celebT / 0.3f).coerceIn(0f, 1f), ((celebDur - celebT) / 0.5f).coerceIn(0f, 1f))
 
     /**
      * GROUND pass: called from the world pass before skaters and the puck are drawn, so these effects
-     * sit on the ice under the players. Draws in screen space through the camera mapping only.
+     * sit on the ice under the players. Drawn in world units under the world's canvas transform (stroke
+     * widths are divided by the camera scale), all geometry going through [project].
      */
     fun drawCelebrationGround(canvas: Canvas, w: World, cam: Camera) {
         if (celebT < 0f) return
@@ -944,95 +961,116 @@ class HudRenderer(private val density: Float) {
         val k = celebK()
         val dir = w.teams[celebTeam].attackDir
         val glX = dir * Rink.GOAL_LINE_X
-        canvas.save()
-        canvas.setMatrix(null)
+        val inv = 1f / cam.scale
+
         // team-colour glow pooled on the ice in front of the net
-        setGroundEllipse(cam, glX - dir * 2f, 0f, 14f)
-        val gcx = ellipse.centerX(); val gcy = ellipse.centerY()
-        if (gcx > -ellipse.width() && gcx < sw + ellipse.width() && glowShader[celebTeam] != null) {
+        if (glowShader[celebTeam] != null) {
+            setGroundEllipse(glX - dir * 2f, 0f, 14f)
             pGlow.shader = glowShader[celebTeam]
             pGlow.alpha = (200 * k * (0.75f + 0.25f * sin(t * 6f))).toInt()
-            canvas.save(); canvas.translate(gcx, gcy); canvas.scale(ellipse.width() / 2f, ellipse.height() / 2f)
+            canvas.save(); canvas.translate(ellipse.centerX(), ellipse.centerY()); canvas.scale(ellipse.width() / 2f, ellipse.height() / 2f)
             canvas.drawCircle(0f, 0f, 1f, pGlow)
             canvas.restore()
-            // cage flash and net ripple: the net rectangle lights up and a ripple travels back through the mesh
-            val x0 = glX; val x1 = glX + dir * Rink.NET_DEPTH
-            val hw = Rink.NET_HALF_W
-            val flash = (1f - t / 1.1f).coerceIn(0f, 1f)
-            if (flash > 0f) {
-                path.reset()
-                path.moveTo(cam.toScreenX(x0), cam.toScreenY(-hw)); path.lineTo(cam.toScreenX(x1), cam.toScreenY(-hw))
-                path.lineTo(cam.toScreenX(x1), cam.toScreenY(hw)); path.lineTo(cam.toScreenX(x0), cam.toScreenY(hw)); path.close()
-                pFill.color = Color.argb((150 * flash * flash).toInt(), 255, 255, 255)
-                canvas.drawPath(path, pFill)
-                // ripple: three mesh lines bowing back, decaying
-                val amp = (flash * 1.4f) * sin(t * 26f)
-                pStroke.color = Color.argb((230 * flash).toInt(), 255, 255, 255)
-                pStroke.strokeWidth = dp(1.5f)
-                for (i in 0 until 3) {
-                    val yy = -hw + hw * (i + 1) * 0.5f
-                    val a = tmpLines
-                    val ox = x0 + dir * (Rink.NET_DEPTH * 0.5f + amp * (if (i == 1) 1f else 0.6f))
-                    a[i * 4] = cam.toScreenX(x0); a[i * 4 + 1] = cam.toScreenY(yy)
-                    a[i * 4 + 2] = cam.toScreenX(ox); a[i * 4 + 3] = cam.toScreenY(yy)
-                }
-                canvas.drawLines(tmpLines, 0, 12, pStroke)
+        }
+
+        // net: white flash plus a mesh that bulges back in the direction the puck travelled
+        val x0 = glX
+        val depth = Rink.NET_DEPTH
+        val hw = Rink.NET_HALF_W
+        val fl = (1f - t / 1.7f).coerceIn(0f, 1f)
+        if (fl > 0f) {
+            val decay = exp(-t * 2.2f)
+            val bulge = 2.2f * decay * (0.65f + 0.35f * cos(t * 17f))
+            path.reset()
+            pathMove(x0, -hw); pathLine(x0 + dir * depth, -hw); pathLine(x0 + dir * depth, hw); pathLine(x0, hw); path.close()
+            pFill.color = Color.argb((85 * fl * fl).toInt(), 255, 255, 255)
+            canvas.drawPath(path, pFill)
+            path.reset()
+            // rows from the goal line to the displaced back wall
+            for (i in 0 until 5) {
+                val y = -hw + hw * 2f * (i + 1) / 6f
+                val bf = 1f - (y / hw) * (y / hw)
+                pathMove(x0, y)
+                pathQuad(x0 + dir * (depth * 0.5f + bulge * bf * 0.5f), y, x0 + dir * (depth + bulge * bf), y)
+            }
+            // columns bowed out in the middle
+            for (i in 1..4) {
+                val d = i / 4f
+                val xd = x0 + dir * (depth * d)
+                pathMove(xd, -hw)
+                pathQuad(xd + dir * bulge * d * 2f, 0f, xd, hw)
+            }
+            pStroke.color = Color.argb((235 * fl).toInt(), 255, 255, 255)
+            pStroke.strokeWidth = dp(1.3f) * inv
+            canvas.drawPath(path, pStroke)
+            if (t < 0.7f) {
+                // the puck, briefly visible in the netting
+                val pa = (1f - t / 0.7f)
+                project(x0 + dir * (depth * 0.8f + bulge * 0.6f), 0f)
+                pFill.color = Color.argb((255 * pa).toInt(), 12, 12, 14)
+                canvas.drawCircle(pjx, pjy, 0.55f, pFill)
+                pStroke.color = Color.argb((220 * pa).toInt(), 255, 255, 255)
+                pStroke.strokeWidth = dp(1f) * inv
+                canvas.drawCircle(pjx, pjy, 0.55f, pStroke)
             }
         }
+
+        // goal lamp on the end boards behind the cage, with a light cone falling onto the crease
+        if (t < 2.6f) {
+            val lampX = dir * (Rink.GOAL_LINE_X + 6f)
+            val fo = ((2.6f - t) / 0.5f).coerceIn(0f, 1f)
+            val pulse = 0.5f + 0.5f * sin(t * 13f)
+            val inten = fo * min(1f, t / 0.12f) * (0.55f + 0.45f * pulse)
+            path.reset()
+            pathMove(lampX, -0.7f); pathLine(lampX, 0.7f); pathLine(glX - dir * 5f, 6f); pathLine(glX - dir * 5f, -6f); path.close()
+            pFill.color = Color.argb((40 * inten).toInt(), 255, 60, 50)
+            canvas.drawPath(path, pFill)
+            setGroundEllipse(lampX, 0f, 6f)
+            pGlow.shader = redGlow
+            pGlow.alpha = (190 * inten).toInt()
+            canvas.save(); canvas.translate(ellipse.centerX(), ellipse.centerY()); canvas.scale(ellipse.width() / 2f, ellipse.height() / 2f)
+            canvas.drawCircle(0f, 0f, 1f, pGlow)
+            canvas.restore()
+            setGroundEllipse(lampX, 0f, 1.15f)
+            pFill.color = K_1B2230
+            canvas.drawOval(ellipse, pFill)
+            setGroundEllipse(lampX, 0f, 0.8f)
+            pFill.color = Color.argb((110 + 145 * inten).toInt(), 255, 50, 40)
+            canvas.drawOval(ellipse, pFill)
+            setGroundEllipse(lampX - dir * 0.2f, -0.25f, 0.28f)
+            pFill.color = Color.argb((255 * inten).toInt(), 255, 240, 235)
+            canvas.drawOval(ellipse, pFill)
+        }
+
         // shockwave ring expanding along the ice from the goal line
         if (t < 0.9f) {
-            setGroundEllipse(cam, glX, 0f, 2f + t * 16f)
+            setGroundEllipse(glX, 0f, 2f + t * 16f)
             pStroke.color = Color.argb((190 * (1f - t / 0.9f)).toInt(), 255, 255, 255)
-            pStroke.strokeWidth = dp(3f)
+            pStroke.strokeWidth = dp(3f) * inv
             canvas.drawOval(ellipse, pStroke)
         }
-        // scorer ring around the skater's feet
+
+        // scorer: faint light cone and a ring around the skater's feet
         val sc = celebScorer
         if (sc != null) {
-            setGroundEllipse(cam, sc.x, sc.y, 2.6f * (1f + 0.08f * sin(t * 8f)))
+            path.reset()
+            pathMove(sc.x - 0.6f, sc.y - 40f); pathLine(sc.x + 0.6f, sc.y - 40f); pathLine(sc.x + 2.4f, sc.y); pathLine(sc.x - 2.4f, sc.y); path.close()
+            pFill.color = Color.argb((30 * k).toInt(), 255, 244, 200)
+            canvas.drawPath(path, pFill)
+            setGroundEllipse(sc.x, sc.y, 2.6f * (1f + 0.08f * sin(t * 8f)))
             pFill.color = Color.argb((55 * k).toInt(), 255, 224, 71)
             canvas.drawOval(ellipse, pFill)
             pStroke.color = Color.argb((255 * k).toInt(), 253, 224, 71)
-            pStroke.strokeWidth = dp(3f)
+            pStroke.strokeWidth = dp(3f) * inv
             canvas.drawOval(ellipse, pStroke)
         }
-        canvas.restore()
     }
 
-    /** SKY pass: after the world; goal lamp, scorer light cone, edge vignette, beams, flash, confetti. */
+    /** SKY pass: after the world, in screen space; edge vignette, beams, flash, confetti. */
     fun drawCelebrationBack(canvas: Canvas, w: World, cam: Camera) {
         if (celebT >= 0f) {
             val t = celebT
             val k = celebK()
-            val dir = w.teams[celebTeam].attackDir
-            // goal lamp mounted above the cage: goal-line centre lifted by a height measured in world feet
-            val lx = cam.toScreenX(dir * (Rink.GOAL_LINE_X + Rink.NET_DEPTH * 0.5f))
-            val ly = cam.toScreenY(0f) - cam.scale * 3.4f
-            val lr = cam.scale * 6f
-            if (t < 2.6f && lx > -lr && lx < sw + lr) {
-                val fo = ((2.6f - t) / 0.5f).coerceIn(0f, 1f)
-                val pulse = 0.5f + 0.5f * sin(t * 13f)
-                val inten = fo * min(1f, t / 0.12f) * (0.55f + 0.45f * pulse)
-                pGlow.shader = redGlow
-                pGlow.alpha = (200 * inten).toInt()
-                canvas.save(); canvas.translate(lx, ly); canvas.scale(lr, lr)
-                canvas.drawCircle(0f, 0f, 1f, pGlow)
-                canvas.restore()
-                pFill.color = Color.argb((235 * inten).toInt(), 255, 236, 230)
-                canvas.drawCircle(lx, ly, cam.scale * 0.7f, pFill)
-            }
-            val sc = celebScorer
-            if (sc != null) {
-                // faint light cone dropping onto the scorer (the ground ring is drawn under the players)
-                val sx = cam.toScreenX(sc.x)
-                val sy = cam.toScreenY(sc.y)
-                val rr = cam.scale * 2.6f
-                path.reset()
-                path.moveTo(sx - rr * 0.2f, sy - sh * 0.7f); path.lineTo(sx + rr * 0.2f, sy - sh * 0.7f)
-                path.lineTo(sx + rr * 0.9f, sy); path.lineTo(sx - rr * 0.9f, sy); path.close()
-                pFill.color = Color.argb((30 * k).toInt(), 255, 244, 200)
-                canvas.drawPath(path, pFill)
-            }
             if (celebLocal && !celebLight) {
                 pVignette.alpha = (255 * k).toInt()
                 canvas.drawRect(0f, 0f, sw, sh, pVignette)
