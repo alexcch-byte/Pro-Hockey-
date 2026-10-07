@@ -80,15 +80,11 @@
                 android:shadowDy="2"
                 android:shadowRadius="4" />
 
-            <Space
-                android:layout_width="0dp"
-                android:layout_height="0dp"
-                android:layout_weight="1" />
-
             <TextView
                 android:id="@+id/txtClub"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
                 android:background="#99061018"
                 android:paddingStart="12dp"
                 android:paddingEnd="12dp"

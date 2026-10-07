@@ -1,6 +1,7 @@
 package com.tablehockey.game.ui
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.LinearGradient
@@ -31,6 +32,12 @@ class MenuBackdropView @JvmOverloads constructor(ctx: Context, attrs: AttributeS
     private var wallShader: Shader? = null
     private var iceShader: Shader? = null
     private var glowShader: Shader? = null
+    private var bandShader: Shader? = null
+    private var coneShader: Shader? = null
+    private var vignetteShader: Shader? = null
+    private var heroBmp: Bitmap? = null
+    private var heroUnit = 0f
+    private val bmpPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private var crowd: FloatArray = FloatArray(0)
     private var crowdColors: IntArray = IntArray(0)
 
@@ -38,6 +45,7 @@ class MenuBackdropView @JvmOverloads constructor(ctx: Context, attrs: AttributeS
     fun setTeam(index: Int) {
         team = TeamInfo.ALL[index.coerceIn(0, TeamInfo.ALL.size - 1)]
         style = TeamStyleStore.styleFor(team)
+        buildHero()
         invalidate()
     }
 
@@ -48,6 +56,10 @@ class MenuBackdropView @JvmOverloads constructor(ctx: Context, attrs: AttributeS
         iceShader = LinearGradient(0f, horizon, 0f, h.toFloat(),
             intArrayOf(0xFFB9D7EE.toInt(), 0xFFE9F4FC.toInt(), 0xFF9CC3E2.toInt()), floatArrayOf(0f, 0.45f, 1f), Shader.TileMode.CLAMP)
         glowShader = RadialGradient(w * 0.3f, h * 0.75f, w * 0.38f, 0x66FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
+        bandShader = LinearGradient(0f, h * 0.30f, 0f, horizon, 0x00000000, 0xCC03060B.toInt(), Shader.TileMode.CLAMP)
+        coneShader = LinearGradient(0f, 0f, 0f, horizon + h * 0.12f, 0x30FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
+        vignetteShader = LinearGradient(0f, 0f, 0f, h * 0.2f, 0xAA000000.toInt(), 0x00000000, Shader.TileMode.CLAMP)
+        buildHero()
         // crowd: seeded specks in the upper wall
         val rnd = Random(7)
         val n = 420
@@ -60,6 +72,15 @@ class MenuBackdropView @JvmOverloads constructor(ctx: Context, attrs: AttributeS
             crowd[i * 3 + 2] = h * (0.006f + 0.008f * rnd.nextFloat())
             crowdColors[i] = palette[rnd.nextInt(palette.size)]
         }
+    }
+
+    /** Re-renders the hero skater bitmap; only runs on size or team/style change. */
+    private fun buildHero() {
+        if (height <= 0) return
+        heroBmp?.recycle()
+        val px = (height * 0.50f).toInt().coerceAtLeast(16)
+        heroUnit = px / 100f
+        heroBmp = TeamArt.skaterBitmap(style, team.abbr, px)
     }
 
     override fun onDraw(c: Canvas) {
@@ -79,7 +100,7 @@ class MenuBackdropView @JvmOverloads constructor(ctx: Context, attrs: AttributeS
         }
         p.alpha = 255
         // dark band above boards to calm the crowd
-        p.shader = LinearGradient(0f, h * 0.30f, 0f, horizon, 0x00000000, 0xCC03060B.toInt(), Shader.TileMode.CLAMP)
+        p.shader = bandShader
         c.drawRect(0f, h * 0.30f, w, horizon, p)
         p.shader = null
 
@@ -90,7 +111,7 @@ class MenuBackdropView @JvmOverloads constructor(ctx: Context, attrs: AttributeS
             path.moveTo(w * (sx - 0.015f), 0f); path.lineTo(w * (sx + 0.015f), 0f)
             path.lineTo(w * (sx + 0.17f), horizon + h * 0.12f); path.lineTo(w * (sx - 0.17f), horizon + h * 0.12f)
             path.close()
-            p.shader = LinearGradient(0f, 0f, 0f, horizon + h * 0.12f, 0x30FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
+            p.shader = coneShader
             c.drawPath(path, p)
         }
         p.shader = null
@@ -134,20 +155,22 @@ class MenuBackdropView @JvmOverloads constructor(ctx: Context, attrs: AttributeS
         }
         p.style = Paint.Style.FILL
 
-        // hero skater with shadow
-        val heroH = h * 0.54f
+        // hero skater (cached bitmap) with contact shadow
         val cx = w * 0.3f
         val feet = h * 0.93f
+        val hu = heroUnit
         p.color = 0x55102A44
-        oval.set(cx - heroH * 0.42f, feet - heroH * 0.03f, cx + heroH * 0.42f, feet + heroH * 0.04f)
+        oval.set(cx - hu * 34f, feet - hu * 3f, cx + hu * 38f, feet + hu * 4f)
         c.drawOval(oval, p)
-        c.save()
-        c.rotate(-4f, cx, feet)
-        TeamArt.drawSkater(c, cx, feet, heroH, style, team.abbr)
-        c.restore()
+        heroBmp?.let {
+            c.save()
+            c.rotate(-4f, cx, feet)
+            c.drawBitmap(it, cx - it.width / 2f, feet - 102f * hu, bmpPaint)
+            c.restore()
+        }
 
         // top vignette
-        p.shader = LinearGradient(0f, 0f, 0f, h * 0.2f, 0xAA000000.toInt(), 0x00000000, Shader.TileMode.CLAMP)
+        p.shader = vignetteShader
         c.drawRect(0f, 0f, w, h * 0.2f, p)
         p.shader = null
     }

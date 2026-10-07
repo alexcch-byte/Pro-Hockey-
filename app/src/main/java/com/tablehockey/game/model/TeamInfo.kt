@@ -20,6 +20,18 @@ data class TeamInfo(
 ) : Serializable {
     val fullName: String get() = if (city.isEmpty()) name else "$city $name"
 
+    // ---- Read-only kit API for renderers (never null; stock clubs fall back to their colours).
+    // `primary` / `secondary` already carry the customised colours. Everything below is extra.
+    // TeamInfo instances are created once per match by byIndex(); compare by identity (!==), not ==.
+    /** Full uniform description (pattern, trim, helmet, socks, crest colours). */
+    val look: TeamStyle get() = style ?: TeamStyle.defaultFor(this)
+    val trimColor: Int get() = look.trim
+    val helmetColor: Int get() = look.helmet
+    val sockColor: Int get() = look.sock
+    val jerseyPattern: JerseyPattern get() = look.pattern
+    val crestType: CrestType get() = look.crest
+    val hasCustomKit: Boolean get() = style != null
+
     companion object {
         const val LEAGUE_PRO = "Pro League"
         const val LEAGUE_CALGARY = "Timbits U7"
