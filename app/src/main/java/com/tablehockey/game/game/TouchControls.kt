@@ -5,7 +5,7 @@ import android.view.MotionEvent
 import kotlin.math.hypot
 
 /**
- * Virtual joystick (left half of the screen) plus SHOOT / PASS / HIT buttons
+ * Virtual joystick (left half of the screen) plus SHOOT / PASS / HIT / DEKE buttons
  * (bottom right). Touch events arrive on the UI thread; the game loop pulls a
  * snapshot with [snapshotInto], which also consumes the one-shot presses.
  */
@@ -29,6 +29,11 @@ class TouchControls(private val density: Float) {
     var shootX = 0f; var shootY = 0f; var shootR = 50f * density
     var passX = 0f; var passY = 0f; var passR = 42f * density
     var hitX = 0f; var hitY = 0f; var hitR = 42f * density
+    var dekeX = 0f; var dekeY = 0f; var dekeR = 38f * density
+    @Volatile var dekeDown = false
+    private var dekePointer = -1
+    private var dekeTapTime = 0L
+    @Volatile var dekeEnabled = true
     @Volatile var shootDown = false
     @Volatile var passDown = false
     @Volatile var hitDown = false
@@ -61,6 +66,13 @@ class TouchControls(private val density: Float) {
         shootX = w - 95f * density; shootY = h - 95f * density
         passX = w - 215f * density; passY = h - 80f * density
         hitX = w - 105f * density; hitY = h - 215f * density
+        dekeX = w - 215f * density; dekeY = h - 192f * density
+    }
+
+    /** 0 when the DEKE button is ready, otherwise the fraction of its short lockout still to run. */
+    fun dekeCooldownFrac(): Float {
+        val left = dekeCooldownUntil - SystemClock.elapsedRealtime()
+        return if (left <= 0L) 0f else (left / 500f).coerceIn(0f, 1f)
     }
 
     fun currentCharge(): Float {
@@ -87,6 +99,7 @@ class TouchControls(private val density: Float) {
         }
         joyPointer = -1; shootPointer = -1; passPointer = -1; hitPointer = -1
         joyActive = false; shootDown = false; passDown = false; hitDown = false
+        dekePointer = -1; dekeDown = false
         prevJoyTime = 0L; prevJoyMx = 0f; prevJoyMy = 0f
     }
 
@@ -133,6 +146,14 @@ class TouchControls(private val density: Float) {
             hitPointer = id
             hitDown = true
             synchronized(lock) { input.hit = true }
+            return
+        }
+        if (dekeEnabled && hypot(x - dekeX, y - dekeY) <= dekeR * 1.15f && dekePointer == -1) {
+            dekePointer = id
+            dekeDown = true
+            // Re-uses the existing deke input (same one the joystick flick sets); no gameplay change.
+            synchronized(lock) { input.deke = true }
+            dekeCooldownUntil = SystemClock.elapsedRealtime() + 500L
             return
         }
         if (x < screenW * 0.5f && y > topExclusion && joyPointer == -1) {
@@ -220,6 +241,7 @@ class TouchControls(private val density: Float) {
             }
             passPointer -> { passPointer = -1; passDown = false }
             hitPointer -> { hitPointer = -1; hitDown = false }
+            dekePointer -> { dekePointer = -1; dekeDown = false }
         }
     }
 }

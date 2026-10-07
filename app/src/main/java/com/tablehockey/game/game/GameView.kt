@@ -490,7 +490,8 @@ class GameView @JvmOverloads constructor(
             crowdStarted = false
             MusicManager.stop()
             soundManager?.playResult(won)
-            post { listener?.onMatchOver(home, away, won) }
+            // Delay the result dialog so the trophy / confetti finish is visible first.
+            postDelayed({ listener?.onMatchOver(home, away, won) }, 3800L)
         }
     }
 }
