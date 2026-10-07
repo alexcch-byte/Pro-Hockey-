@@ -44,6 +44,10 @@ class Renderer(private val density: Float) {
     private val tmpPath = Path()
 
     private var crowd: Bitmap? = null
+    private val art = WorldArt()
+    private var crowdDirty = true
+    private var crowdHome = 0
+    private var crowdAway = 0
     private val crowdRect = RectF(-Camera.WORLD_HALF_W, -Camera.WORLD_HALF_H, Camera.WORLD_HALF_W, Camera.WORLD_HALF_H)
     private var animTime = 0f
 
@@ -295,61 +299,8 @@ class Renderer(private val density: Float) {
 
     fun resize(w: Int, h: Int) {
         camera.resize(w, h)
-        buildCrowd()
+        crowdDirty = true
         buildWinterLandscape()
-    }
-
-    private fun buildCrowd() {
-        val pxPerFt = 5f
-        val bw = (crowdRect.width() * pxPerFt).toInt().coerceAtLeast(8)
-        val bh = (crowdRect.height() * pxPerFt).toInt().coerceAtLeast(8)
-        val bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.RGB_565)
-        val c = Canvas(bmp)
-        c.drawColor(Color.parseColor("#0B1424"))
-        val rng = Random(7)
-        val p = Paint(Paint.ANTI_ALIAS_FLAG)
-        val palette = intArrayOf(
-            Color.parseColor("#1E293B"), Color.parseColor("#334155"), Color.parseColor("#7F1D1D"), Color.parseColor("#1E3A8A"),
-            Color.parseColor("#374151"), Color.parseColor("#4B5563"), Color.parseColor("#9A3412"), Color.parseColor("#14532D"),
-            Color.parseColor("#F1F5F9"), Color.parseColor("#FDE68A")
-        )
-        // Rows of seats radiating outwards from the boards.
-        c.translate(bw / 2f, bh / 2f)
-        c.scale(pxPerFt, pxPerFt)
-        val stepRow = 1.6f
-        val stepSeat = 1.15f
-        var ring = Rink.HALF_W + 3.5f
-        var row = 0
-        while (ring < Camera.WORLD_HALF_H + 1f) {
-            val halfL = Rink.HALF_L + 3.5f + row * stepRow
-            val halfW = ring
-            val shade = 1f - row * 0.07f
-            var sx = -halfL
-            while (sx <= halfL) {
-                for (sy in floatArrayOf(-halfW, halfW)) {
-                    p.color = shadeColor(palette[rng.nextInt(palette.size)], shade)
-                    c.drawCircle(sx + rng.nextFloat() * 0.3f, sy + rng.nextFloat() * 0.3f, 0.48f, p)
-                }
-                sx += stepSeat
-            }
-            var sy = -halfW
-            while (sy <= halfW) {
-                for (sx2 in floatArrayOf(-halfL, halfL)) {
-                    p.color = shadeColor(palette[rng.nextInt(palette.size)], shade)
-                    c.drawCircle(sx2 + rng.nextFloat() * 0.3f, sy + rng.nextFloat() * 0.3f, 0.48f, p)
-                }
-                sy += stepSeat
-            }
-            ring += stepRow
-            row++
-        }
-        // Dark walkway right behind the glass.
-        p.color = Color.parseColor("#0F1B2E")
-        p.style = Paint.Style.STROKE
-        p.strokeWidth = 3f
-        c.drawRoundRect(RectF(-Rink.HALF_L - 2.5f, -Rink.HALF_W - 2.5f, Rink.HALF_L + 2.5f, Rink.HALF_W + 2.5f), Rink.CORNER_R + 2.5f, Rink.CORNER_R + 2.5f, p)
-        crowd?.recycle()
-        crowd = bmp
     }
 
     private fun buildWinterLandscape() {
@@ -468,6 +419,17 @@ class Renderer(private val density: Float) {
         return Color.rgb(r, g, b)
     }
 
+    private fun ensureCrowd(world: World) {
+        val h = world.teams[0].info.primary
+        val a = world.teams[1].info.primary
+        if (!crowdDirty && h == crowdHome && a == crowdAway) return
+        crowdDirty = false
+        crowdHome = h
+        crowdAway = a
+        crowd?.recycle()
+        crowd = art.buildCrowd(h, a)
+    }
+
     private fun ensureTeamShaders(world: World) {
         // Sprites are rendered at screen resolution, so a new zoom level or a
         // different club means rendering them again. (Checked here, on the game
@@ -499,6 +461,8 @@ class Renderer(private val density: Float) {
     fun draw(canvas: Canvas, world: World, localTeam: Int, controls: TouchControls?, dt: Float) {
         animTime += dt
         ensureTeamShaders(world)
+        ensureCrowd(world)
+        art.updateReferee(world, dt)
         updateSpray(world, dt)
         updateSnow(dt)
         updateBreath(world, dt)
@@ -548,6 +512,7 @@ class Renderer(private val density: Float) {
         for (s in world.allSkaters) {
             if (!world.isShootout || kotlin.math.abs(s.y) < 45f) drawShadow(canvas, s)
         }
+        if (!isPond && !world.isShootout) art.drawReferee(canvas)
         drawSpray(canvas)
         val sorted = world.allSkaters.filter { !world.isShootout || kotlin.math.abs(it.y) < 45f }.sortedBy { it.y }
         val controlled = if (localTeam >= 0) world.controlledSkater(localTeam) else null
@@ -577,6 +542,7 @@ class Renderer(private val density: Float) {
         canvas.drawPath(rinkPath, if (isPond) pondIcePaint else icePaint)
         canvas.save()
         canvas.clipPath(rinkPath)
+        if (!isPond) canvas.drawBitmap(art.iceOverlay, null, art.iceRect, art.iceOverlayPaint)
 
         // Skate scratch marks on the ice
         for (i in 0 until scratchCount) {
@@ -634,6 +600,8 @@ class Renderer(private val density: Float) {
                 canvas.drawCircle(sx * Rink.NEUTRAL_DOT_X, cy, 1f, dotRed)
             }
         }
+
+        if (!isPond) art.drawMarkings(canvas)
 
         // Creases, trapezoids and nets at both ends.
         for (e in floatArrayOf(-1f, 1f)) {
@@ -707,6 +675,7 @@ class Renderer(private val density: Float) {
             tmpPath.addRoundRect(tmpRect, Rink.CORNER_R + 1.9f, Rink.CORNER_R + 1.9f, Path.Direction.CW)
             canvas.drawPath(tmpPath, pondSnowCapPaint)
         } else {
+            art.drawOuterShadow(canvas)
             canvas.drawPath(rinkPath, kickPlate)
             tmpRect.set(rinkRect)
             tmpRect.inset(-1.1f, -1.1f)
@@ -717,6 +686,9 @@ class Renderer(private val density: Float) {
             tmpPath.reset()
             tmpPath.addRoundRect(tmpRect, Rink.CORNER_R + 2.5f, Rink.CORNER_R + 2.5f, Path.Direction.CW)
             canvas.drawPath(tmpPath, glassPaint)
+            art.drawBoardAds(canvas, world.teams[0].info.primary, world.teams[1].info.primary)
+            art.drawGlassDetail(canvas)
+            art.drawFarWall(canvas, world.teams[0].info.primary, world.teams[1].info.primary)
         }
     }
 

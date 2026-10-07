@@ -15,6 +15,8 @@ class Camera {
     var scale = 10f
     var screenW = 1
     var screenH = 1
+    /** Vertical squash of the world: a cheap tilted-camera look (1 = straight top-down). */
+    val yScale = 0.8f
 
     companion object {
         const val VISIBLE_HEIGHT_FT = 84f
@@ -59,7 +61,7 @@ class Camera {
     }
 
     private fun clampY(v: Float): Float {
-        val halfVis = screenH / scale / 2f
+        val halfVis = screenH / (scale * yScale) / 2f
         val lim = WORLD_HALF_H - halfVis
         return if (lim <= 0f) 0f else v.coerceIn(-lim, lim)
     }
@@ -73,18 +75,18 @@ class Camera {
             offsetY = kotlin.math.sin(shakeTime * 42f) * mag
         }
         canvas.translate(screenW / 2f + offsetX, screenH / 2f + offsetY)
-        canvas.scale(scale, scale)
+        canvas.scale(scale, scale * yScale)
         canvas.translate(-x, -y)
     }
 
 
     fun toScreenX(wx: Float) = (wx - x) * scale + screenW / 2f
-    fun toScreenY(wy: Float) = (wy - y) * scale + screenH / 2f
+    fun toScreenY(wy: Float) = (wy - y) * scale * yScale + screenH / 2f
 
     fun visibleLeft() = x - screenW / scale / 2f
     fun visibleRight() = x + screenW / scale / 2f
-    fun visibleTop() = y - screenH / scale / 2f
-    fun visibleBottom() = y + screenH / scale / 2f
+    fun visibleTop() = y - screenH / (scale * yScale) / 2f
+    fun visibleBottom() = y + screenH / (scale * yScale) / 2f
 
     fun minScale() = min(screenW / (WORLD_HALF_W * 2f), screenH / (WORLD_HALF_H * 2f))
 }
