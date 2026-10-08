@@ -478,3 +478,22 @@ Wiring (SoundManager): OFFSIDE and ICING play whistle_short; the WHISTLE event t
 - Rules: only on fresh match starts (`GameView.anthem` set by GameActivity: setting on, music volume above 0, not a shootout, and for tournament games only when `currentRound == 0`); `restartMatch()` uses `start()` without the anthem. Network: host decides the hold; the phase travels in the normal snapshots, and each device plays the audio locally if its own setting allows. A guest's tap only fades its own audio; the host's tap (or timer) ends the ceremony for both.
 - Setting: "Play national anthem before the game" checkbox in Match Setup (`Prefs.anthemEnabled`, default on).
 - C7 fixes: the pause button is tested before the anthem tap-to-skip (still works during the ceremony); a network guest sees "WAITING FOR HOST" and its tap neither skips nor fades audio; the PULL GOALIE pill and touch controls are hidden during `Phase.ANTHEM`; if the anthem audio cannot play (MediaPlayer fails or music volume 0) the host shortens the hold to 2 s instead of a silent 24 s.
+
+## Anthem v2 from MIDI (builder)
+
+- The first transcription (F major, from the hymnal score) was wrong against the user's reference MIDI (`CANADA.MID`: E-flat major, 4/4, quarter about 103, 12 tracks). `anthem_ocanada()` in tools/make_sounds.py is rebuilt from that MIDI: the exact pitches and rhythms of the trumpet, second trumpet, horn, tuba, bass trombone, timpani and cymbal tracks are embedded as `Name@start+len` strings and quantised (starts to 1/4 beat, lengths to 1/2 beat, minimum 1/2 beat, notes under 0.2 beat dropped).
+- Short version: original beats 0-32 (bars 1-8, "O Canada, our home and native land / True patriot love in all of us command") then the closing phrase from original beat 96-112, moved up to beats 32-48, so it ends on the E-flat tonic after the bar-8 dominant (Bb4 held, restruck as the start of the last phrase, the same Bb as in the MIDI). 48 beats at 103 bpm = 27.96 s, plus a reverb tail: the file is 30.3 s. The MIDI's own pickup (F4 G4 into bar 9) is cut so the two parts join cleanly. Timpani roll into the join and cymbal crashes at beats 16, 32 and 44, plus a swell under beats 40-44, follow the MIDI's cymbal and timpani tracks.
+- Voices: trumpet melody (resonant saw pair with delayed vibrato), second trumpet harmony, horns, tuba + bass trombone (pulse + triangle), timpani, cymbals, all in this file's own synth, with arena reverb. Level pin -11.5 dB as before. Only anthem_ocanada.wav changed (all other WAVs identical). `Simulation.ANTHEM_HOLD` is now 28.5 s.
+- Melody notes (name@beat+length) after quantising, bars of 4 beats (bar 9-12 are the moved closing phrase):
+  - Bar 1: G4@0+2 Bb4@2+1.5 Bb4@3.5+0.5
+  - Bar 2: Eb4@4+2.5 F4@7+1
+  - Bar 3: G4@8+1 Ab4@9+1 Bb4@10+1 C5@11+1
+  - Bar 4: F4@12+3
+  - Bar 5: G4@16+2 A4@18+1.5 A4@19.5+0.5
+  - Bar 6: Bb4@20+2.5 C5@23+1
+  - Bar 7: D5@24+1 D5@25+1 C5@26+1 C5@27+1
+  - Bar 8: Bb4@28+2.5
+  - Bar 9: Bb4@32+2 Eb5@34+1.5 Eb5@35.5+0.5
+  - Bar 10: C5@36+1 Ab4@37+1 G4@38+1 F4@39+1
+  - Bar 11: Bb4@40+2 D4@42+2
+  - Bar 12: Eb4@44+4

@@ -1314,100 +1314,136 @@ def sfx_toggle():
     return out
 
 
+# Note lists transcribed from the reference MIDI the user supplied for the anthem (E-flat major, 4/4, quarter = 103):
+# "Name@startBeat+lengthBeats" with the MIDI's human timing left in; anthem_ocanada() quantises them to clean beats.
+_ANTHEM_TRUMPET = (
+    "G4@0.00+1.87 Bb4@2.00+1.38 Bb4@3.52+0.31 Eb4@4.03+2.66 F4@6.97+0.88 G4@7.97+0.90 Ab4@8.98+0.81 Bb4@9.97+0.84 "
+    "C5@10.97+0.76 F4@11.97+3.16 G4@15.97+1.97 A4@17.99+1.40 A4@19.54+0.32 Bb4@20.00+2.73 C5@22.98+0.88 D5@23.98+0.79 "
+    "D5@24.97+0.93 C5@25.99+0.85 C5@26.99+0.80 Bb4@28.00+2.57 "
+    "Bb4@96.01+1.81 Eb5@97.98+1.31 Eb5@99.51+0.40 C5@100.02+0.85 Ab4@101.00+0.84 G4@102.00+0.82 F4@102.99+0.83 "
+    "Bb4@103.97+1.90 D4@105.99+1.85 Eb4@108.01+3.97")
+_ANTHEM_TRUMPET2 = (
+    "Eb4@0.01+1.90 F4@1.99+1.35 F4@3.51+0.51 C4@4.01+2.87 D4@6.98+0.84 Eb4@7.97+0.86 Eb4@8.98+0.83 Eb4@9.98+0.86 "
+    "Eb4@11.00+0.79 Eb4@12.03+2.00 D4@13.99+1.59 Eb4@16.01+1.78 Eb4@17.98+0.85 F4@18.96+0.93 G4@19.98+2.76 "
+    "Bb4@22.95+0.86 Bb4@23.98+1.73 A4@25.98+1.96 F4@27.98+3.06 "
+    "G4@96.01+1.80 G4@98.00+1.32 G4@99.52+0.35 Ab4@100.01+0.93 F4@100.98+0.86 E4@101.99+0.91 C4@102.99+0.91 "
+    "Eb4@104.01+1.95 Bb3@106.03+1.86 Eb4@108.01+3.96")
+_ANTHEM_HORN = (
+    "Bb3@0.00+1.84 Bb3@1.99+1.97 C4@4.01+2.85 D4@7.00+0.88 Eb4@7.96+0.97 C4@8.95+0.97 Bb3@9.97+0.96 C4@10.96+1.02 "
+    "Eb4@11.96+1.04 D4@12.96+0.54 C4@13.46+0.59 D4@13.98+1.72 Eb4@16.00+1.79 Eb4@17.98+0.90 F4@18.98+0.95 "
+    "D4@19.99+2.73 Eb4@22.98+0.84 F4@23.97+1.95 Eb4@25.96+1.97 D4@30.98+1.85 "
+    "Eb4@96.00+1.80 Eb4@97.98+1.54 Eb4@99.54+0.39 Eb4@100.04+0.81 F4@100.99+0.85 E4@101.99+0.92 C4@103.07+0.74 "
+    "Eb4@104.07+1.72 D4@106.00+1.92 Eb4@108.01+3.97")
+_ANTHEM_TUBA = (
+    "Eb3@0.00+1.86 D3@2.01+1.88 C3@4.01+0.95 G2@4.97+0.95 C3@5.97+0.91 D3@6.98+0.84 Eb3@7.98+0.96 C3@8.98+0.93 "
+    "G2@9.98+0.89 Ab2@10.98+0.80 Bb2@11.96+3.19 D3@16.98+1.00 C3@17.99+0.97 D3@18.98+0.93 G2@19.98+0.96 D3@20.97+0.92 "
+    "G3@21.96+1.03 F#3@22.98+0.97 F3@23.99+1.84 F2@25.98+2.02 Bb2@27.98+0.96 F2@29.01+0.79 Bb2@29.98+1.69 "
+    "Eb3@96.01+2.03 G2@98.03+1.90 Ab2@99.98+1.00 F2@100.99+0.88 G2@101.99+0.88 Ab2@102.96+1.04 Bb2@103.96+1.89 "
+    "Bb2@105.97+2.12 Eb2@108.02+3.85")
+_ANTHEM_TIMPANI = (
+    "Bb2@14.54+0.17 Bb2@14.83+0.14 Bb2@15.03+0.19 Bb2@15.51+0.41 Eb3@16.03+0.19 Bb2@28.02+0.10 F2@29.01+0.17 "
+    "Bb2@30.02+0.10 Bb2@30.54+0.09 Bb2@30.80+0.10 Bb2@31.02+0.09 Bb2@31.50+0.09 "
+    "G2@95.69+0.24 Eb2@96.00+2.00 Bb2@104.05+1.49 Bb2@106.09+0.29 Bb2@106.61+0.10 Bb2@106.78+0.10 Bb2@106.97+0.15 "
+    "Bb2@107.51+0.12 Eb2@108.02+0.07 Eb3@108.02+0.17")
+_ANTHEM_BASSBONE = (
+    "Eb3@96.02+1.68 Eb3@97.90+1.72 Eb3@100.00+0.97 F3@100.98+0.99 Bb3@101.98+0.87 Ab3@103.05+0.93 G3@104.00+1.92 "
+    "F3@105.98+2.04 Eb3@108.01+3.99")
+
+
+def _anthem_notes(text, cap_a=32.0, join=64.0, min_len=0.2):
+    """Parses 'Name@start+len' tokens into clean-beat (name, start, length). Bars 1-8 stay where they are; the closing
+    phrase (original beat 95.5 on) is moved up 64 beats so it follows bar 8 directly."""
+    out = []
+    for tok in text.split():
+        name, rest = tok.split("@")
+        st, ln = rest.split("+")
+        st, ln = float(st), float(ln)
+        if ln < min_len:
+            continue
+        q = round(st * 4) / 4
+        d = max(0.5, round(ln * 2) / 2)
+        if q >= 95.0:
+            q -= join
+        else:
+            d = min(d, cap_a - q)
+        out.append((name, q, d))
+    return out
+
+
 def anthem_ocanada():
-    """Pre-game anthem: an instrumental arrangement of the melody of "O Canada" (Calixa Lavallee, 1880,
-    public domain), eight bars in F major, 4/4, quarter = 84: the opening phrase ("O Canada, our home and
-    native land") and the closing phrase of the refrain, resolving to the tonic. Pitches and rhythm follow the
-    public-domain hymnal setting (Wikipedia / hymnary.org score, F major, 4/4); no lyrics, no recording.
-    Brass-like lead, organ-ish chord pad and a bass, with arena reverb. Uses its own filters only, so it draws
-    nothing from the shared random stream."""
-    bpm = 84
+    """Pre-game anthem: a short instrumental arrangement of "O Canada" (Calixa Lavallee, 1880, public domain) modelled
+    on a reference MIDI: E-flat major, 4/4, quarter = 103. Bars 1-8 ("O Canada, our home and native land / True patriot
+    love in all of us command", original beats 0-32) then straight to the closing phrase ("O Canada, we stand on guard
+    for thee", original beats 96-112, here beats 32-48), which resolves on the E-flat tonic. Voices follow the MIDI:
+    trumpet melody, second trumpet harmony, horns, tuba / bass trombone, timpani and cymbals, rendered with this file's
+    own synth voices plus arena reverb. Instrumental only: no lyrics, no recording. Draws nothing from the shared
+    random stream."""
+    bpm = 103
     spb = 60.0 / bpm
-    # (note, beats) per bar; None = tie to the previous note is not used, every note is struck
-    melody = [
-        ("A4", 2), ("C5", 1.5), ("C5", 0.5),
-        ("F4", 3), ("G4", 1),
-        ("A4", 1), ("Bb4", 1), ("C5", 1), ("D5", 1),
-        ("G4", 4),
-        ("C5", 2), ("F5", 1.5), ("F5", 0.5),
-        ("D5", 1), ("Bb4", 1), ("A4", 1), ("G4", 1),
-        ("C5", 2), ("E4", 2),
-        ("F4", 4),
-    ]
-    bass = [
-        ("F3", 2), ("E3", 1.5), ("E3", 0.5),
-        ("D3", 3), ("C3", 1),
-        ("F3", 1), ("D3", 1), ("A2", 1), ("Bb2", 1),
-        ("C3", 4),
-        ("F3", 2), ("A3", 1.5), ("A3", 0.5),
-        ("Bb3", 1), ("G2", 1), ("A2", 1), ("Bb2", 1),
-        ("C3", 2), ("C3", 2),
-        ("F3", 4),
-    ]
-    F_ = ["A3", "C4", "F4"]
-    DM = ["A3", "D4", "F4"]
-    C_ = ["G3", "C4", "E4"]
-    BB = ["Bb3", "D4", "F4"]
-    GM = ["Bb3", "D4", "G4"]
-    chords = [
-        (F_, 4),
-        (DM, 3), (C_, 1),
-        (F_, 1), (DM, 1), (F_, 1), (BB, 1),
-        (C_, 4),
-        (F_, 4),
-        (BB, 1), (GM, 1), (F_, 1), (BB, 1),
-        (C_, 4),
-        (F_, 4),
-    ]
-    total = 32 * spb
-    tail = 2.4
-    out = np.zeros(seconds(total + tail))
+    nbeats = 48
+    tail = 2.6
+    out = np.zeros(seconds(nbeats * spb + tail))
     local = np.random.default_rng(1980)
 
-    def place(w, start_beat, gain):
-        i = seconds(start_beat * spb)
-        out[i:i + len(w)] += w[:len(out) - i] * gain
+    def place(w, beat, gain):
+        i = max(0, seconds(beat * spb))
+        k = min(len(w), len(out) - i)
+        if k > 0:
+            out[i:i + k] += w[:k] * gain
 
-    # lead: sawtooth pair through brass-like resonances, delayed vibrato, swelling attack
-    beat = 0.0
-    for k, (name, d) in enumerate(melody):
-        last = k == len(melody) - 1
-        dur = d * spb * (1.0 if last else 0.93) + (1.2 if last else 0.0)
+    def brass(name, beats, bright, final=False):
+        dur = beats * spb * (1.0 if final else 0.94) + (1.4 if final else 0.0)
         n = seconds(dur)
         t = t_axis(n)
         f = note_freq(name)
-        vib = 1 + 0.0035 * np.sin(2 * np.pi * 5.4 * t) * np.clip((t - 0.15) / 0.3, 0, 1)
+        vib = 1 + 0.0035 * np.sin(2 * np.pi * 5.4 * t) * np.clip((t - 0.2) / 0.3, 0, 1)
         x = _saw(f * vib) + 0.55 * _saw(f * vib * 1.0045)
-        y = (_formant(x, 650, 380) + 0.7 * _formant(x, 1300, 520) + 0.35 * _formant(x, 2500, 800)
-             + 0.25 * lowpass(x, 3200))
+        y = (_formant(x, 700 * bright, 380) + 0.7 * _formant(x, 1400 * bright, 520)
+             + 0.35 * _formant(x, 2600 * bright, 800) + 0.25 * lowpass(x, 3300))
         y /= np.max(np.abs(y)) + 1e-9
-        env = adsr(n, 0.05, 0.12, 0.0, 0.5 if last else 0.09, 0.9)
-        place(y * env, beat, 0.62)
-        beat += d
-    # pad: soft sawtooth chords an octave under the lead
-    beat = 0.0
-    for notes, d in chords:
-        n = seconds(d * spb + (1.4 if beat + d >= 32 else 0.05))
-        for nm in notes:
-            f = note_freq(nm)
-            x = lowpass(_saw(np.full(n, f)) + 0.5 * _saw(np.full(n, f * 1.003)), 1500)
-            place(x * adsr(n, 0.08, 0.1, 0.8, 0.35 if beat + d >= 32 else 0.08, 0.85), beat, 0.075)
-        beat += d
-    # bass: pulse plus triangle, plain quarter-note march feel
-    beat = 0.0
-    for nm, d in bass:
-        n = seconds(d * spb * 0.96 + (1.3 if beat + d >= 32 else 0.0))
+        return y * adsr(n, 0.045, 0.1, 0.0, 0.55 if final else 0.09, 0.9)
+
+    last_start = 44.0
+    for name, st, d in _anthem_notes(_ANTHEM_TRUMPET):
+        place(brass(name, d, 1.0, st >= last_start), st, 0.6)
+    for name, st, d in _anthem_notes(_ANTHEM_TRUMPET2):
+        place(brass(name, d, 0.8, st >= last_start), st, 0.34)
+    # horns: mellower, darker
+    for name, st, d in _anthem_notes(_ANTHEM_HORN):
+        n = seconds(d * spb * 0.97 + (1.4 if st >= last_start else 0.0))
+        f = note_freq(name)
+        x = lowpass(_saw(np.full(n, f)) + 0.5 * _saw(np.full(n, f * 1.004)), 1400)
+        place(x * adsr(n, 0.07, 0.1, 0.8, 0.5 if st >= last_start else 0.1, 0.85), st, 0.22)
+    # tuba / bass trombone: pulse + triangle so the pitch survives a small speaker
+    for text, g in ((_ANTHEM_TUBA, 0.32), (_ANTHEM_BASSBONE, 0.12)):
+        for name, st, d in _anthem_notes(text):
+            n = seconds(d * spb * 0.95 + (1.2 if st >= last_start else 0.0))
+            f = note_freq(name)
+            x = pulse(f, n, 0.25) * 0.5 + triangle(f, n)
+            place(x * adsr(n, 0.012, 0.08, 0.75, 0.6 if st >= last_start else 0.1, 0.8), st, g)
+    # timpani: a pitched thump with a short noise knock; rolls are just fast repeats from the score
+    for tok in _ANTHEM_TIMPANI.split():
+        nm, rest = tok.split("@")
+        st = float(rest.split("+")[0])
+        st = round(st * 8) / 8
+        if st >= 95.0:
+            st -= 64.0
         f = note_freq(nm)
-        x = pulse(f, n, 0.25) * 0.5 + triangle(f, n)
-        place(x * adsr(n, 0.01, 0.08, 0.7, 0.12 if beat + d < 32 else 0.7, 0.8), beat, 0.34)
-        beat += d
-    # a soft snare tap on beats 2 and 4 keeps the march moving (own noise source)
-    for b in range(0, 31):
-        if b % 2 == 1:
-            n = seconds(0.07)
-            tap = bandpass(local.uniform(-1, 1, n), 1500, 6000) * decay(n, 0.02)
-            place(tap, b, 0.14)
-    out = add_room(out, 0.42, 1.4, bright=False, seed=33)
+        n = seconds(0.55)
+        t = t_axis(n)
+        body = np.sin(2 * np.pi * np.cumsum(f * (1 + 0.5 * np.exp(-t * 18))) / SR) * np.exp(-t / 0.16)
+        knock = bandpass(local.uniform(-1, 1, n), 200, 1500) * decay(n, 0.012) * 0.5
+        place(body + knock, st, 0.5)
+    # cymbals: a crash at the bar 4-5 turn, the join, and a long swell into the final crash
+    def crash(length, tau, rise):
+        n = seconds(length)
+        t = t_axis(n)
+        return highpass(local.uniform(-1, 1, n), 3500) * (1 - np.exp(-t / rise)) * np.exp(-t / tau)
+    place(crash(1.6, 0.5, 0.01), 16.0, 0.16)
+    place(crash(1.6, 0.5, 0.01), 31.99, 0.14)
+    place(crash(1.2 + 4 * spb, 0.9, 4 * spb * 0.7), 40.0, 0.07)   # swell under the last four beats
+    place(crash(3.2, 0.9, 0.01), 44.0, 0.22)
+    out = add_room(out, 0.4, 1.5, bright=False, seed=33)
     return soft_clip(out / np.max(np.abs(out)) * 0.9, 1.1)
 
 

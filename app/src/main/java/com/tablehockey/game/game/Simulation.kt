@@ -46,8 +46,8 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         private const val STAT_OFFSIDE = 5
         private const val STAT_WHISTLE_IDX = 12
         const val FACEOFF_HOLD = 1.4f
-        /** Length of the pre-game anthem ceremony in seconds (the audio is about 25 s with its reverb tail). */
-        const val ANTHEM_HOLD = 24f
+        /** Length of the pre-game anthem ceremony in seconds (the audio is music ends at 28 s, the audio file is about 30 s with its reverb tail). */
+        const val ANTHEM_HOLD = 28.5f
         const val WHISTLE_HOLD = 1.3f
         const val GOAL_HOLD = 3.2f
         const val PERIOD_HOLD = 3.5f
