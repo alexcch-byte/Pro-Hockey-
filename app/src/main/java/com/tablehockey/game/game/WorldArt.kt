@@ -216,6 +216,93 @@ class WorldArt {
         canvas.drawBitmapMesh(bmp, mw, mh, v, 0, null, 0, paint)
     }
 
+
+    // ------------------------------------------------------------------ screen-clipped quad batches
+
+    /**
+     * Collects textured quads clipped to the screen rectangle and draws them with one drawVertices
+     * call. Clipping on our side keeps triangles that reach far off-screen (common with strong
+     * perspective) from being dropped or mangled by the rasteriser.
+     */
+    private class QuadBatch(maxQuads: Int) {
+        val v = FloatArray(maxQuads * 18 * 2)
+        val t = FloatArray(maxQuads * 18 * 2)
+        var nv = 0
+        var ni = 0
+        private var pa = FloatArray(10 * 4)
+        private var pb = FloatArray(10 * 4)
+
+        fun reset() { nv = 0; ni = 0 }
+
+        fun quad(
+            x0: Float, y0: Float, u0: Float, v0: Float, x1: Float, y1: Float, u1: Float, v1: Float,
+            x2: Float, y2: Float, u2: Float, v2: Float, x3: Float, y3: Float, u3: Float, v3: Float,
+            l: Float, tp: Float, r: Float, b: Float
+        ) {
+            var src = pa
+            var dst = pb
+            src[0] = x0; src[1] = y0; src[2] = u0; src[3] = v0
+            src[4] = x1; src[5] = y1; src[6] = u1; src[7] = v1
+            src[8] = x2; src[9] = y2; src[10] = u2; src[11] = v2
+            src[12] = x3; src[13] = y3; src[14] = u3; src[15] = v3
+            var n = 4
+            for (edge in 0 until 4) {
+                var m = 0
+                for (i in 0 until n) {
+                    val c = i * 4
+                    val p = ((i + n - 1) % n) * 4
+                    val dc = dist(src, c, edge, l, tp, r, b)
+                    val dp = dist(src, p, edge, l, tp, r, b)
+                    if (dc >= 0f) {
+                        if (dp < 0f) { m = cross(src, p, c, dp, dc, dst, m) }
+                        dst[m * 4] = src[c]; dst[m * 4 + 1] = src[c + 1]; dst[m * 4 + 2] = src[c + 2]; dst[m * 4 + 3] = src[c + 3]
+                        m++
+                    } else if (dp >= 0f) {
+                        m = cross(src, p, c, dp, dc, dst, m)
+                    }
+                }
+                val tmp = src; src = dst; dst = tmp
+                n = m
+                if (n < 3) return
+            }
+            quads++
+            // Plain (non-indexed) triangles: the fan around vertex 0.
+            for (k in 1 until n - 1) {
+                for (q in 0..2) {
+                    val s = if (q == 0) 0 else if (q == 1) k else k + 1
+                    v[nv * 2] = src[s * 4]; v[nv * 2 + 1] = src[s * 4 + 1]
+                    t[nv * 2] = src[s * 4 + 2]; t[nv * 2 + 1] = src[s * 4 + 3]
+                    nv++
+                }
+            }
+            ni = nv
+        }
+
+        private fun dist(a: FloatArray, o: Int, edge: Int, l: Float, tp: Float, r: Float, b: Float): Float = when (edge) {
+            0 -> a[o] - l
+            1 -> r - a[o]
+            2 -> a[o + 1] - tp
+            else -> b - a[o + 1]
+        }
+
+        private fun cross(a: FloatArray, p: Int, c: Int, dp: Float, dc: Float, out: FloatArray, m: Int): Int {
+            val f = dp / (dp - dc)
+            for (k in 0 until 4) out[m * 4 + k] = a[p + k] + (a[c + k] - a[p + k]) * f
+            return m + 1
+        }
+
+        var quads = 0
+
+        fun draw(canvas: Canvas, paint: Paint) {
+            if (ni == 0) return
+            canvas.drawVertices(Canvas.VertexMode.TRIANGLES, nv * 2, v, 0, t, 0, null, 0, null, 0, 0, paint)
+            nv = 0; ni = 0; quads = 0
+        }
+    }
+
+    private val wallBatch = QuadBatch(100)
+    private val rakeBatch = QuadBatch(100)
+
     // ------------------------------------------------------------------ boards and glass walls
 
     private val wallH = 8.4f
@@ -391,8 +478,6 @@ class WorldArt {
         p.shader = LinearGradient(0f, 7.7f, 0f, wallH, Color.parseColor("#F4C542"), Color.parseColor("#B8891A"), Shader.TileMode.CLAMP)
         c.drawRect(0f, 7.7f, total, wallH, p)
         p.shader = null
-        System.out.println("TEXDBG tw=" + tw + " th=" + th + " total=" + total + " nPan=" + nPan + " px=" + Integer.toHexString(bmp.getPixel(tw - 5, th / 2)) + " " + Integer.toHexString(bmp.getPixel(tw - 60, th / 2)) + " " + Integer.toHexString(bmp.getPixel(tw - 1, th / 2)))
-        java.io.File("/tmp/claude-0/-home-user-Pro-Hockey-/69963c48-6a5e-5e15-84fb-eaa496dedd59/scratchpad/mine/wall.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
         wallBmp?.recycle()
         wallBmp = bmp
         wallPaint.shader = BitmapShader(bmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
@@ -417,24 +502,26 @@ class WorldArt {
             wallVerts[i * 4 + 2] = bx
             wallVerts[i * 4 + 3] = by
         }
-        var ic = 0
+        val sw = cam.screenW + 4f
+        val sh = cam.screenH + 4f
+        wallBatch.reset()
         for (i in 0 until perN - 1) {
             val mx = (perX[i] + perX[i + 1]) * 0.5f
             val my = (perY[i] + perY[i + 1]) * 0.5f
             val vx = cam.x - mx
             val vy = cam.y + 70f - my
-            if (nrmX[i] * vx + nrmY[i] * vy > 0f && my < cam.y + 8f) {
-                val a = (2 * i).toShort()
-                val b = (2 * i + 1).toShort()
-                val c = (2 * i + 2).toShort()
-                val d = (2 * i + 3).toShort()
-                wallIdx[ic++] = a; wallIdx[ic++] = b; wallIdx[ic++] = c
-                wallIdx[ic++] = c; wallIdx[ic++] = b; wallIdx[ic++] = d
+            if (nrmX[i] * vx + nrmY[i] * vy > 0f && my < cam.y + 34f) {
+                val j = i + 1
+                wallBatch.quad(
+                    wallVerts[i * 4], wallVerts[i * 4 + 1], wallTex[i * 4], wallTex[i * 4 + 1],
+                    wallVerts[i * 4 + 2], wallVerts[i * 4 + 3], wallTex[i * 4 + 2], wallTex[i * 4 + 3],
+                    wallVerts[j * 4 + 2], wallVerts[j * 4 + 3], wallTex[j * 4 + 2], wallTex[j * 4 + 3],
+                    wallVerts[j * 4], wallVerts[j * 4 + 1], wallTex[j * 4], wallTex[j * 4 + 1],
+                    -4f, -4f, sw, sh
+                )
             }
         }
-        if (ic == 0) return
-        if (cam.x == 0f) { for (q in perN - 12 until perN) System.out.println("WALL q=" + q + " x=" + wallVerts[q*4] + " yb=" + wallVerts[q*4+3] + " u=" + wallTex[q*4] + " vis=" + (0 until ic).any { wallIdx[it].toInt() == 2*q }) }
-        canvas.drawVertices(Canvas.VertexMode.TRIANGLES, perN * 2, wallVerts, 0, wallTex, 0, null, 0, wallIdx, 0, ic, wallPaint)
+        wallBatch.draw(canvas, wallPaint)
     }
 
     // ------------------------------------------------------------------ stands
@@ -598,18 +685,22 @@ class WorldArt {
                 rakeTex[i * 4 + 2] = perU[i] * STAND_PX
                 rakeTex[i * 4 + 3] = 0f
             }
-            var ic = 0
+            rakeBatch.reset()
+            val sw = cam.screenW + 4f
+            val sh = cam.screenH + 4f
             for (i in 0 until perN - 1) {
                 val my = (perY[i] + perY[i + 1]) * 0.5f
                 if (my > cam.y + 30f) continue
-                val a = (2 * i).toShort()
-                val b = (2 * i + 1).toShort()
-                val c = (2 * i + 2).toShort()
-                val d = (2 * i + 3).toShort()
-                rakeIdx[ic++] = a; rakeIdx[ic++] = b; rakeIdx[ic++] = c
-                rakeIdx[ic++] = c; rakeIdx[ic++] = b; rakeIdx[ic++] = d
+                val j = i + 1
+                rakeBatch.quad(
+                    rakeVerts[i * 4], rakeVerts[i * 4 + 1], rakeTex[i * 4], rakeTex[i * 4 + 1],
+                    rakeVerts[i * 4 + 2], rakeVerts[i * 4 + 3], rakeTex[i * 4 + 2], rakeTex[i * 4 + 3],
+                    rakeVerts[j * 4 + 2], rakeVerts[j * 4 + 3], rakeTex[j * 4 + 2], rakeTex[j * 4 + 3],
+                    rakeVerts[j * 4], rakeVerts[j * 4 + 1], rakeTex[j * 4], rakeTex[j * 4 + 1],
+                    -4f, -4f, sw, sh
+                )
             }
-            if (ic > 0) canvas.drawVertices(Canvas.VertexMode.TRIANGLES, perN * 2, rakeVerts, 0, rakeTex, 0, null, 0, rakeIdx, 0, ic, sidePaint)
+            rakeBatch.draw(canvas, sidePaint)
         }
         var bottom = cam.py(-Rink.HALF_W) - wallH * cam.ppf(-Rink.HALF_W) + 2f
         for (l in layers) {
