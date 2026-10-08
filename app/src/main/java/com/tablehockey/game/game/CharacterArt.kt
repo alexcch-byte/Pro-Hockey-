@@ -117,6 +117,11 @@ class CharacterArt(val pxPerFt: Float) {
     private fun line(x1: Float, y1: Float, z1: Float, x2: Float, y2: Float, z2: Float, w: Float, color: Int) =
         add(LINE, x1, y1, z1, x2, y2, z2, w, color)
 
+    // Stock clubs keep the original look; only customised kits use the Customise Team colours.
+    private fun trimOf(i: TeamInfo) = if (i.hasCustomKit) i.trimColor else i.secondary
+    private fun sockOf(i: TeamInfo, stock: Int) = if (i.hasCustomKit) i.sockColor else stock
+    private fun helmetOf(i: TeamInfo) = if (i.hasCustomKit) i.helmetColor else darken(i.primary, 0.55f)
+
     private fun darken(c: Int, f: Float) = Color.argb(
         Color.alpha(c),
         (Color.red(c) * f).toInt().coerceIn(0, 255), (Color.green(c) * f).toInt().coerceIn(0, 255), (Color.blue(c) * f).toInt().coerceIn(0, 255)
@@ -263,10 +268,10 @@ class CharacterArt(val pxPerFt: Float) {
         begin(facing, if (referee) 1.08f else BODY_SC)
         val bsc = sc
         val prim = if (referee) Color.parseColor("#F1F5F9") else info.primary
-        val sec = if (referee) Color.parseColor("#0B0F17") else info.secondary
+        val sec = if (referee) Color.parseColor("#0B0F17") else trimOf(info)
         val pants = if (referee) Color.parseColor("#0B0F17") else Color.parseColor("#1B2333")
-        val sock = if (referee) Color.parseColor("#0B0F17") else sec
-        val helmet = if (referee) Color.parseColor("#0B0F17") else darken(info.primary, 0.55f)
+        val sock = if (referee) Color.parseColor("#0B0F17") else sockOf(info, sec)
+        val helmet = if (referee) Color.parseColor("#0B0F17") else helmetOf(info)
         val glove = if (referee) Color.parseColor("#0B0F17") else darken(info.primary, 0.42f)
         val skin = Color.parseColor("#E8B994")
         val reach = (1.5f + Skater.STICK_REACH) / bsc
@@ -388,7 +393,7 @@ class CharacterArt(val pxPerFt: Float) {
     fun goalie(info: TeamInfo, facing: Int, stance: Int): Bitmap {
         begin(facing, GOALIE_SC)
         val prim = info.primary
-        val sec = info.secondary
+        val sec = trimOf(info)
         val padW = Color.parseColor("#F3F4F6")
         val pantsC = Color.parseColor("#1B2333")
         val leather = Color.parseColor("#8B5A2B")

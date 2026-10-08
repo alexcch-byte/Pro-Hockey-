@@ -926,34 +926,40 @@ class HudRenderer(private val density: Float) {
 
     // ---------------------------------------------------------------- overlays
 
-    // Ground-pass projection. The ground pass is drawn under the world's own canvas transform (so camera
-    // shake and any future projection set up by Camera.apply stay in sync with the ice and skaters), which
-    // means "projecting" a world point is the identity. If the camera later stops expressing its view as a
-    // canvas matrix, this is the one function to change: write the drawing-space coordinates to pjx/pjy.
+    // Ground-pass projection through the perspective camera: world feet -> screen pixels.
+    // [h] lifts a point above the ice by that many feet (screen-up, scaled by the depth).
     private var pjx = 0f
     private var pjy = 0f
-    private fun project(wx: Float, wy: Float) { pjx = wx; pjy = wy }
+    private var gcam: Camera? = null
+    private fun project(wx: Float, wy: Float, h: Float = 0f) {
+        val c = gcam ?: return
+        pjx = c.px(wx, wy)
+        pjy = c.py(wy) - h * c.ppf(wy)
+    }
 
-    private fun pathMove(wx: Float, wy: Float) { project(wx, wy); path.moveTo(pjx, pjy) }
-    private fun pathLine(wx: Float, wy: Float) { project(wx, wy); path.lineTo(pjx, pjy) }
+    private fun pathMove(wx: Float, wy: Float, h: Float = 0f) { project(wx, wy, h); path.moveTo(pjx, pjy) }
+    private fun pathLine(wx: Float, wy: Float, h: Float = 0f) { project(wx, wy, h); path.lineTo(pjx, pjy) }
     private fun pathQuad(cx: Float, cy: Float, wx: Float, wy: Float) {
         project(cx, cy); val qx = pjx; val qy = pjy
         project(wx, wy); path.quadTo(qx, qy, pjx, pjy)
     }
 
-    /** Projects a world-space circle at (wx, wy) of radius rw into [ellipse]. */
-    private fun setGroundEllipse(wx: Float, wy: Float, rw: Float) {
-        project(wx - rw, wy - rw); val x0 = pjx; val y0 = pjy
-        project(wx + rw, wy + rw)
-        ellipse.set(min(x0, pjx), min(y0, pjy), max(x0, pjx), max(y0, pjy))
+    /** Projects a ground circle at (wx, wy) of radius rw feet into [ellipse] (ry = rx * vk), lifted by [h] feet. */
+    private fun setGroundEllipse(wx: Float, wy: Float, rw: Float, h: Float = 0f) {
+        val c = gcam ?: return
+        project(wx, wy, h)
+        val rx = rw * c.ppf(wy)
+        ellipse.set(pjx - rx, pjy - rx * c.vk, pjx + rx, pjy + rx * c.vk)
     }
+
+    private val LAMP_H = 6f
 
     private fun celebK(): Float = min((celebT / 0.3f).coerceIn(0f, 1f), ((celebDur - celebT) / 0.5f).coerceIn(0f, 1f))
 
     /**
      * GROUND pass: called from the world pass before skaters and the puck are drawn, so these effects
-     * sit on the ice under the players. Drawn in world units under the world's canvas transform (stroke
-     * widths are divided by the camera scale), all geometry going through [project].
+     * sit on the ice under the players. Drawn in screen pixels (stroke widths in dp), all geometry going
+     * through [project] so it follows the perspective camera and its shake.
      */
     fun drawCelebrationGround(canvas: Canvas, w: World, cam: Camera) {
         if (celebT < 0f) return
@@ -961,7 +967,7 @@ class HudRenderer(private val density: Float) {
         val k = celebK()
         val dir = w.teams[celebTeam].attackDir
         val glX = dir * Rink.GOAL_LINE_X
-        val inv = 1f / cam.scale
+        gcam = cam
 
         // team-colour glow pooled on the ice in front of the net
         if (glowShader[celebTeam] != null) {
@@ -1001,17 +1007,18 @@ class HudRenderer(private val density: Float) {
                 pathQuad(xd + dir * bulge * d * 2f, 0f, xd, hw)
             }
             pStroke.color = Color.argb((235 * fl).toInt(), 255, 255, 255)
-            pStroke.strokeWidth = dp(1.3f) * inv
+            pStroke.strokeWidth = dp(1.3f)
             canvas.drawPath(path, pStroke)
             if (t < 0.7f) {
                 // the puck, briefly visible in the netting
                 val pa = (1f - t / 0.7f)
                 project(x0 + dir * (depth * 0.8f + bulge * 0.6f), 0f)
+                val pr = 0.55f * cam.ppf(0f)
                 pFill.color = Color.argb((255 * pa).toInt(), 12, 12, 14)
-                canvas.drawCircle(pjx, pjy, 0.55f, pFill)
+                canvas.drawCircle(pjx, pjy, pr, pFill)
                 pStroke.color = Color.argb((220 * pa).toInt(), 255, 255, 255)
-                pStroke.strokeWidth = dp(1f) * inv
-                canvas.drawCircle(pjx, pjy, 0.55f, pStroke)
+                pStroke.strokeWidth = dp(1f)
+                canvas.drawCircle(pjx, pjy, pr, pStroke)
             }
         }
 
@@ -1022,22 +1029,22 @@ class HudRenderer(private val density: Float) {
             val pulse = 0.5f + 0.5f * sin(t * 13f)
             val inten = fo * min(1f, t / 0.12f) * (0.55f + 0.45f * pulse)
             path.reset()
-            pathMove(lampX, -0.7f); pathLine(lampX, 0.7f); pathLine(glX - dir * 5f, 6f); pathLine(glX - dir * 5f, -6f); path.close()
+            pathMove(lampX, -0.7f, LAMP_H); pathLine(lampX, 0.7f, LAMP_H); pathLine(glX - dir * 5f, 6f); pathLine(glX - dir * 5f, -6f); path.close()
             pFill.color = Color.argb((40 * inten).toInt(), 255, 60, 50)
             canvas.drawPath(path, pFill)
-            setGroundEllipse(lampX, 0f, 6f)
+            setGroundEllipse(lampX, 0f, 6f, LAMP_H)
             pGlow.shader = redGlow
             pGlow.alpha = (190 * inten).toInt()
             canvas.save(); canvas.translate(ellipse.centerX(), ellipse.centerY()); canvas.scale(ellipse.width() / 2f, ellipse.height() / 2f)
             canvas.drawCircle(0f, 0f, 1f, pGlow)
             canvas.restore()
-            setGroundEllipse(lampX, 0f, 1.15f)
+            setGroundEllipse(lampX, 0f, 1.15f, LAMP_H)
             pFill.color = K_1B2230
             canvas.drawOval(ellipse, pFill)
-            setGroundEllipse(lampX, 0f, 0.8f)
+            setGroundEllipse(lampX, 0f, 0.8f, LAMP_H)
             pFill.color = Color.argb((110 + 145 * inten).toInt(), 255, 50, 40)
             canvas.drawOval(ellipse, pFill)
-            setGroundEllipse(lampX - dir * 0.2f, -0.25f, 0.28f)
+            setGroundEllipse(lampX - dir * 0.2f, -0.25f, 0.28f, LAMP_H)
             pFill.color = Color.argb((255 * inten).toInt(), 255, 240, 235)
             canvas.drawOval(ellipse, pFill)
         }
@@ -1046,7 +1053,7 @@ class HudRenderer(private val density: Float) {
         if (t < 0.9f) {
             setGroundEllipse(glX, 0f, 2f + t * 16f)
             pStroke.color = Color.argb((190 * (1f - t / 0.9f)).toInt(), 255, 255, 255)
-            pStroke.strokeWidth = dp(3f) * inv
+            pStroke.strokeWidth = dp(3f)
             canvas.drawOval(ellipse, pStroke)
         }
 
@@ -1054,14 +1061,14 @@ class HudRenderer(private val density: Float) {
         val sc = celebScorer
         if (sc != null) {
             path.reset()
-            pathMove(sc.x - 0.6f, sc.y - 40f); pathLine(sc.x + 0.6f, sc.y - 40f); pathLine(sc.x + 2.4f, sc.y); pathLine(sc.x - 2.4f, sc.y); path.close()
+            pathMove(sc.x - 0.6f, sc.y, 30f); pathLine(sc.x + 0.6f, sc.y, 30f); pathLine(sc.x + 2.4f, sc.y); pathLine(sc.x - 2.4f, sc.y); path.close()
             pFill.color = Color.argb((30 * k).toInt(), 255, 244, 200)
             canvas.drawPath(path, pFill)
             setGroundEllipse(sc.x, sc.y, 2.6f * (1f + 0.08f * sin(t * 8f)))
             pFill.color = Color.argb((55 * k).toInt(), 255, 224, 71)
             canvas.drawOval(ellipse, pFill)
             pStroke.color = Color.argb((255 * k).toInt(), 253, 224, 71)
-            pStroke.strokeWidth = dp(3f) * inv
+            pStroke.strokeWidth = dp(3f)
             canvas.drawOval(ellipse, pStroke)
         }
     }
