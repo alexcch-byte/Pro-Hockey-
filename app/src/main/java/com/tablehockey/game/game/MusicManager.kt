@@ -99,7 +99,7 @@ object MusicManager {
             try { if (!p.isPlaying) p.start() } catch (_: Exception) {}
             return
         }
-        stop()
+        stopLoop()
         val mp = try { MediaPlayer.create(context.applicationContext, resId) } catch (_: Exception) { null } ?: return
         try {
             mp.isLooping = true
@@ -202,6 +202,12 @@ object MusicManager {
     @Synchronized
     fun stop() {
         releaseAnthem()
+        stopLoop()
+    }
+
+    /** Stops the background loop only; the pre-game anthem (if playing) is left alone. */
+    @Synchronized
+    private fun stopLoop() {
         handler.removeCallbacks(restoreVolume)
         handler.removeCallbacks(fadeStep)
         generation++
@@ -284,7 +290,8 @@ object MusicManager {
     }
 
     private fun applyAll() {
-        val k = duckFactor * userVolume
+        // Background music is fully silent while the pre-game anthem plays.
+        val k = if (anthemPlayer != null) 0f else duckFactor * userVolume
         val inV = (trackVolume * fadeIn * k).coerceIn(0f, 1f)
         try { player?.setVolume(inV, inV) } catch (_: Exception) {}
         val outV = (outgoingVolume * (1f - fadeIn) * k).coerceIn(0f, 1f)
