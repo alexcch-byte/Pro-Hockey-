@@ -54,6 +54,7 @@ class TeamPreviewView @JvmOverloads constructor(ctx: Context, attrs: AttributeSe
     private var floorShader: Shader? = null
     private var shadowShader: Shader? = null
 
+    private var title = ""
     private var dirty = true
     private var skaterBmp: Bitmap? = null
     private var goalieBmp: Bitmap? = null
@@ -90,21 +91,23 @@ class TeamPreviewView @JvmOverloads constructor(ctx: Context, attrs: AttributeSe
         skaterBmp?.recycle(); goalieBmp?.recycle(); crestBmp?.recycle()
         skaterBmp = null; goalieBmp = null; crestBmp = null
         dirty = false
+        title = t?.fullName?.uppercase() ?: ""
         if (w <= 0 || h <= 0 || st == null || t == null) return
 
-        val margin = 0.04f * w
-        val gap = 0.03f * w
-        val goalieScale = 0.8f
-        // skater units u: margin + 66u + gap + 73*0.8u + margin = w  ->  u = (w - 2m - gap) / 124.4
-        val uByWidth = (w - 2 * margin - gap) / (66f + 73f * goalieScale)
+        // Figures deliberately overlap a little (skater in front, goalie behind and smaller).
+        // Art extents in units: skater x -29..31, goalie x -39..40. Keep both inside the view:
+        //   skater left edge: cx - 29u >= 0.03w  with cx = 0.35w
+        //   goalie right edge: cx + 40*gs*u <= 0.97w  with cx = 0.67w
+        val goalieScale = 0.84f
+        val uByWidth = min((0.35f - 0.03f) * w / 29f, (0.97f - 0.67f) * w / (40f * goalieScale))
         val uByHeight = h * 0.60f / 100f
         val u = min(uByWidth, uByHeight)
         skaterUnit = u
         goalieUnit = u * goalieScale
-        skaterCx = margin + 27f * u
-        goalieCx = w - margin - 37f * goalieUnit
+        skaterCx = 0.35f * w
+        goalieCx = 0.67f * w
         skaterFeet = h * 0.90f
-        goalieFeet = h * 0.80f
+        goalieFeet = h * 0.82f
 
         // bitmaps use whole-pixel heights; take the real unit size from them so feet land exactly
         val sPx = (u * 100f).toInt().coerceAtLeast(8)
@@ -155,7 +158,7 @@ class TeamPreviewView @JvmOverloads constructor(ctx: Context, attrs: AttributeSe
 
         crestBmp?.let { c.drawBitmap(it, w * 0.5f - it.width / 2f, h * 0.025f, bmpPaint) }
         name.textSize = h * 0.06f
-        c.drawText(team!!.fullName.uppercase(), w * 0.5f, h * 0.955f, name)
+        c.drawText(title, w * 0.5f, h * 0.955f, name)
         sub.textSize = h * 0.026f
         c.drawText(caption, w * 0.5f, h * 0.99f, sub)
     }
