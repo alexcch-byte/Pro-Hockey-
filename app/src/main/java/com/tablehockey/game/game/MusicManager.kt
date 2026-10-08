@@ -308,7 +308,8 @@ object MusicManager {
         menuRefs--
         if (menuRefs <= 0) {
             menuRefs = 0
-            pause()
+            // A menu screen stopping after the game screen opened must not pause the anthem or the game loop.
+            if (currentRes == R.raw.music_menu) pause()
         }
     }
 
