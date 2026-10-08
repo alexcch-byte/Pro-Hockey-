@@ -3,7 +3,13 @@ package com.tablehockey.game.game
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.LinearGradient
 import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffColorFilter
+import android.graphics.PorterDuffXfermode
+import android.graphics.RadialGradient
+import android.graphics.Shader
 import com.tablehockey.game.model.TeamInfo
 import kotlin.math.PI
 import kotlin.math.cos
@@ -30,18 +36,19 @@ class CharacterArt(val pxPerFt: Float) {
 
     companion object {
         const val FACINGS = 16
-        const val STRIDE_FRAMES = 4
-        const val F_WIND = 4
-        const val F_FOLLOW = 5
-        const val F_POKE = 6
-        const val F_FALLEN = 7
-        const val FRAMES = 8
+        const val STRIDE_FRAMES = 6
+        const val F_WIND = 6
+        const val F_FOLLOW = 7
+        const val F_POKE = 8
+        const val F_FALLEN = 9
+        const val FRAMES = 10
         const val GOALIE_STANCES = 4
 
-        private const val ABOVE_FT = 8.2f
-        private const val BELOW_FT = 5.0f
-        private const val WIDE_FT = 14f
-        private const val GOALIE_SC = 1.15f
+        private const val ABOVE_FT = 9.4f
+        private const val BELOW_FT = 5.8f
+        private const val WIDE_FT = 16.5f
+        private const val BODY_SC = 1.15f
+        private const val GOALIE_SC = 1.25f
 
         private const val CAP = 0
         private const val BAND = 1
@@ -187,19 +194,59 @@ class CharacterArt(val pxPerFt: Float) {
             }
         }
         parts.clear()
+        finishLook(bmp, c)
         return bmp
+    }
+
+    private val atop = Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP) }
+    private val dstOut = Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_OUT) }
+    private val dstOver = Paint(Paint.ANTI_ALIAS_FLAG).apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.DST_OVER) }
+    private val rimTint = Paint().apply { colorFilter = PorterDuffColorFilter(Color.argb(150, 226, 238, 255), PorterDuff.Mode.SRC_IN) }
+
+    /** Baked form shading, a directional rim light from the upper left, and a soft contact shadow underneath. */
+    private fun finishLook(bmp: Bitmap, c: Canvas) {
+        val w = bmp.width.toFloat()
+        val h = bmp.height.toFloat()
+        // Light from the upper left: lighter on that side, darker toward the lower right and the ground.
+        atop.shader = LinearGradient(
+            0f, 0f, w, h,
+            intArrayOf(Color.argb(46, 255, 255, 255), Color.argb(0, 0, 0, 0), Color.argb(80, 8, 16, 44)),
+            floatArrayOf(0f, 0.42f, 1f), Shader.TileMode.CLAMP
+        )
+        c.drawRect(0f, 0f, w, h, atop)
+        atop.shader = LinearGradient(
+            0f, anchorY - 4f * pxPerFt, 0f, anchorY + 0.5f * pxPerFt,
+            Color.argb(0, 0, 0, 0), Color.argb(70, 8, 16, 44), Shader.TileMode.CLAMP
+        )
+        c.drawRect(0f, 0f, w, h, atop)
+        atop.shader = null
+        // Rim: the silhouette minus itself shifted down-right leaves a thin lit edge on the upper left.
+        val rim = bmp.copy(Bitmap.Config.ARGB_8888, true)
+        val off = max(1.4f, pxPerFt * 0.11f)
+        Canvas(rim).drawBitmap(bmp, off, off * 0.9f, dstOut)
+        c.drawBitmap(rim, 0f, 0f, rimTint)
+        rim.recycle()
+        // Soft contact shadow behind everything.
+        val rx = 1.55f * sc * pxPerFt
+        dstOver.shader = RadialGradient(0f, 0f, rx, intArrayOf(Color.argb(120, 8, 18, 40), Color.argb(50, 8, 18, 40), Color.argb(0, 8, 18, 40)), floatArrayOf(0f, 0.6f, 1f), Shader.TileMode.CLAMP)
+        c.save()
+        c.translate(anchorX + 0.2f * pxPerFt, anchorY + 0.12f * pxPerFt)
+        c.scale(1f, Camera.VK)
+        c.drawCircle(0f, 0f, rx, dstOver)
+        c.restore()
+        dstOver.shader = null
     }
 
     // ------------------------------------------------------------------ number placement
 
     /** Pixel offset (relative to the feet anchor) where the jersey number sits for a facing. */
     fun numberDx(facing: Int): Float {
-        begin(facing, 1f)
+        begin(facing, BODY_SC)
         return sx(-0.1f, 0f) - anchorX
     }
 
     fun numberDy(facing: Int): Float {
-        begin(facing, 1f)
+        begin(facing, BODY_SC)
         return sy(-0.1f, 0f, 3.95f) - anchorY
     }
 
@@ -213,7 +260,8 @@ class CharacterArt(val pxPerFt: Float) {
     // ------------------------------------------------------------------ skaters
 
     fun skater(info: TeamInfo, facing: Int, frame: Int, referee: Boolean): Bitmap {
-        begin(facing, 1f)
+        begin(facing, if (referee) 1.08f else BODY_SC)
+        val bsc = sc
         val prim = if (referee) Color.parseColor("#F1F5F9") else info.primary
         val sec = if (referee) Color.parseColor("#0B0F17") else info.secondary
         val pants = if (referee) Color.parseColor("#0B0F17") else Color.parseColor("#1B2333")
@@ -221,7 +269,7 @@ class CharacterArt(val pxPerFt: Float) {
         val helmet = if (referee) Color.parseColor("#0B0F17") else darken(info.primary, 0.55f)
         val glove = if (referee) Color.parseColor("#0B0F17") else darken(info.primary, 0.42f)
         val skin = Color.parseColor("#E8B994")
-        val reach = 1.5f + Skater.STICK_REACH
+        val reach = (1.5f + Skater.STICK_REACH) / bsc
 
         if (frame == F_FALLEN) {
             fallen(prim, sec, pants, sock, helmet, glove, skin, referee)
@@ -229,7 +277,7 @@ class CharacterArt(val pxPerFt: Float) {
         }
 
         // Legs.
-        val a = frame.coerceAtMost(STRIDE_FRAMES - 1) * (PI.toFloat() / 2f) + 0.6f
+        val a = frame.coerceAtMost(STRIDE_FRAMES - 1) * (2f * PI.toFloat() / STRIDE_FRAMES) + 0.6f
         for (s in intArrayOf(1, -1)) {
             val sw = sin(a) * s
             val cw = cos(a) * s
@@ -271,7 +319,7 @@ class CharacterArt(val pxPerFt: Float) {
         when (frame) {
             F_WIND -> { heelX = reach - 2.4f; heelY = 1.1f; heelZ = 0.5f; thX = 0.5f; thY = 0.9f; thZ = 3.4f }
             F_FOLLOW -> { heelX = reach + 0.6f; heelY = -0.9f; heelZ = 0.9f; thX = 1.5f; thY = -0.1f; thZ = 3.2f }
-            F_POKE -> { heelX = 1.5f + Skater.POKE_REACH - 0.55f; thX = 2.0f; thZ = 3.1f }
+            F_POKE -> { heelX = (1.5f + Skater.POKE_REACH) / bsc - 0.55f; thX = 2.0f; thZ = 3.1f }
         }
         val lowX = thX + (heelX - thX) * 0.42f
         val lowY = thY + (heelY - thY) * 0.42f

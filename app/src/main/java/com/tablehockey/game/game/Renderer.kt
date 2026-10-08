@@ -72,8 +72,8 @@ class Renderer(private val density: Float) {
     private val faceoffPulse = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#FBBF24"); style = Paint.Style.STROKE; strokeWidth = 0.4f }
 
     // ----- Winter Pond paints
-    private val pondIcePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#98C2D1") }
-    private val pondIceShadePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#80AEC0") }
+    private val pondIcePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#C4DDE2") }
+    private val pondIceShadePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#AACBD2") }
     private val pondBoardsPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#442B18"); style = Paint.Style.STROKE; strokeWidth = 2.4f }
     private val pondKickPlate = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#29170A"); style = Paint.Style.STROKE; strokeWidth = 0.9f }
     private val pondSnowCapPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#EDF6F9"); style = Paint.Style.STROKE; strokeWidth = 1.3f; strokeCap = Paint.Cap.ROUND }
@@ -178,7 +178,7 @@ class Renderer(private val density: Float) {
 
     // ----- Ice wear & scratches (Zamboni reset)
     private val scratchPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
-    private val MAX_SCRATCHES = 120
+    private val MAX_SCRATCHES = 240
     private val scratchX1 = FloatArray(MAX_SCRATCHES)
     private val scratchY1 = FloatArray(MAX_SCRATCHES)
     private val scratchX2 = FloatArray(MAX_SCRATCHES)
@@ -234,7 +234,7 @@ class Renderer(private val density: Float) {
     private val spritePaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
     private val spriteDst = RectF()
     private val meshPaint = Paint(Paint.FILTER_BITMAP_FLAG)
-    private val skyPaint = Paint()
+    private var skyBmp: Bitmap? = null
     private val numberStr = Array(100) { it.toString() }
 
     // ----- baked top-down rink (ice, markings, creases, nets), warped through the camera each frame
@@ -248,7 +248,7 @@ class Renderer(private val density: Float) {
     // ----- draw order scratch (no per-frame allocation)
     private val orderIdx = IntArray(16)
     private val orderKey = FloatArray(16)
-    private val scratchLines = FloatArray(120 * 4)
+    private val scratchLines = FloatArray(240 * 4)
 
     // ----- snow spray particles + per-skater motion memory
     private val sprayX = FloatArray(MAX_SPRAY)
@@ -305,6 +305,53 @@ class Renderer(private val density: Float) {
         camera.resize(w, h)
         artDirty = true
         buildWinterLandscape()
+        buildSky(w)
+    }
+
+
+    /** Dusk sky with mountains and a pine tree line, drawn above the pond landscape. */
+    private fun buildSky(w: Int) {
+        val bw = max(64, w)
+        val bh = max(64, (w * 0.3f).toInt())
+        val bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.RGB_565)
+        val c = Canvas(bmp)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        p.shader = LinearGradient(0f, 0f, 0f, bh.toFloat(), intArrayOf(Color.parseColor("#0B1430"), Color.parseColor("#3C4F86"), Color.parseColor("#C98F86"), Color.parseColor("#F2C9A0")), floatArrayOf(0f, 0.45f, 0.82f, 1f), Shader.TileMode.CLAMP)
+        c.drawRect(0f, 0f, bw.toFloat(), bh.toFloat(), p)
+        p.shader = null
+        val rng = Random(21)
+        p.color = Color.argb(200, 255, 255, 255)
+        for (i in 0 until 40) c.drawCircle(rng.nextFloat() * bw, rng.nextFloat() * bh * 0.4f, 1.2f, p)
+        fun ridge(base: Float, amp: Float, color: Int, step: Float) {
+            p.color = color
+            tmpPath.reset()
+            tmpPath.moveTo(0f, bh.toFloat())
+            var x = 0f
+            while (x <= bw + step) {
+                tmpPath.lineTo(x, base - amp * (0.3f + rng.nextFloat() * 0.7f))
+                x += step
+            }
+            tmpPath.lineTo(bw.toFloat(), bh.toFloat())
+            tmpPath.close()
+            c.drawPath(tmpPath, p)
+        }
+        ridge(bh * 0.72f, bh * 0.35f, Color.parseColor("#59698F"), bw / 9f)
+        ridge(bh * 0.82f, bh * 0.22f, Color.parseColor("#33486C"), bw / 14f)
+        p.color = Color.parseColor("#0E2A24")
+        var tx = 0f
+        while (tx < bw) {
+            val th = bh * (0.12f + rng.nextFloat() * 0.12f)
+            val tw = th * 0.45f
+            tmpPath.reset()
+            tmpPath.moveTo(tx, bh.toFloat())
+            tmpPath.lineTo(tx + tw / 2f, bh - th)
+            tmpPath.lineTo(tx + tw, bh.toFloat())
+            tmpPath.close()
+            c.drawPath(tmpPath, p)
+            tx += tw * 0.7f
+        }
+        skyBmp?.recycle()
+        skyBmp = bmp
     }
 
     private fun buildWinterLandscape() {
@@ -523,9 +570,11 @@ class Renderer(private val density: Float) {
         canvas.drawColor(if (isPond) Color.parseColor("#09101C") else Color.parseColor("#05080F"))
         if (isPond) {
             val horizon = camera.py(-Camera.WORLD_HALF_H) + 2f
-            if (horizon > 0f) {
-                skyPaint.shader = LinearGradient(0f, 0f, 0f, horizon, Color.parseColor("#070C18"), Color.parseColor("#4A6A8C"), Shader.TileMode.CLAMP)
-                canvas.drawRect(0f, 0f, camera.screenW.toFloat(), horizon, skyPaint)
+            val sky = skyBmp
+            if (sky != null && horizon > 0f) {
+                val hh = min(horizon, camera.screenW * 0.3f)
+                spriteDst.set(0f, horizon - hh, camera.screenW.toFloat(), horizon)
+                canvas.drawBitmap(sky, null, spriteDst, meshPaint)
             }
             winterLandscape?.let {
                 art.drawWarped(canvas, camera, it, crowdRect.left, crowdRect.top, crowdRect.right, crowdRect.bottom, 1, meshPaint)
@@ -572,8 +621,8 @@ class Renderer(private val density: Float) {
                 scratchLines[i * 4 + 2] = camera.px(scratchX2[i], scratchY2[i])
                 scratchLines[i * 4 + 3] = camera.py(scratchY2[i])
             }
-            scratchPaint.alpha = 42
-            scratchPaint.strokeWidth = 1.2f
+            scratchPaint.alpha = 80
+            scratchPaint.strokeWidth = 1.7f
             canvas.drawLines(scratchLines, 0, scratchCount * 4, scratchPaint)
         }
         if (world.phase == Phase.FACEOFF) {
@@ -683,7 +732,7 @@ class Renderer(private val density: Float) {
         canvas.drawPath(rinkPath, if (isPond) pondIcePaint else icePaint)
         canvas.save()
         canvas.clipPath(rinkPath)
-        if (!isPond) canvas.drawBitmap(art.iceOverlay, null, art.iceRect, art.iceOverlayPaint)
+        canvas.drawBitmap(art.iceOverlay, null, art.iceRect, art.iceOverlayPaint)
 
         if (isPond) {
             canvas.drawLine(-25f, -14f, -5f, 6f, pondCrackPaint)
@@ -1013,16 +1062,6 @@ class Renderer(private val density: Float) {
         canvas.drawOval(tmpRect, paint)
     }
 
-    private fun drawShadow(canvas: Canvas, s: Skater) {
-        val k = camera.ppf(s.y)
-        val cx = camera.px(s.x, s.y)
-        val cy = camera.py(s.y)
-        val r = s.radius * 1.15f * BODY_SCALE * k
-        ovalPx(canvas, cx + 0.25f * k, cy + 0.12f * k, r * 0.95f, shadowPaint)
-        ovalPx(canvas, cx + 0.2f * k, cy + 0.1f * k, r * 0.68f, shadowPaint)
-        ovalPx(canvas, cx + 0.12f * k, cy + 0.06f * k, r * 0.42f, contactShadow)
-    }
-
     private fun drawBillboard(canvas: Canvas, ch: CharacterArt, bmp: Bitmap, sx: Float, sy: Float, scale: Float) {
         val l = sx - ch.anchorX * scale
         val t = sy - ch.anchorY * scale
@@ -1039,19 +1078,12 @@ class Renderer(private val density: Float) {
             for (i in list.indices) {
                 val s = list[i]
                 if (world.isShootout && kotlin.math.abs(s.y) >= 45f) continue
-                drawShadow(canvas, s)
                 orderIdx[n] = t * 6 + i
                 orderKey[n] = s.y
                 n++
             }
         }
         val showRef = !isPond && !world.isShootout
-        if (showRef) {
-            val k = camera.ppf(art.refY)
-            val cx = camera.px(art.refX, art.refY)
-            val cy = camera.py(art.refY)
-            ovalPx(canvas, cx + 0.3f * k, cy + 0.2f * k, 1.9f * k, shadowPaint)
-        }
         drawSpray(canvas)
         orderIdx[n] = 100
         orderKey[n] = world.puck.y
@@ -1130,7 +1162,7 @@ class Renderer(private val density: Float) {
                 s.swingTimer > 0f -> if (1f - s.swingTimer / 0.35f < 0.4f) CharacterArt.F_WIND else CharacterArt.F_FOLLOW
                 controlled && charge > 0.05f && world.puck.carrier === s -> CharacterArt.F_WIND
                 s.speed > 2f -> {
-                    val f = ((s.stride * 1.3f / (2f * PI.toFloat())) * CharacterArt.STRIDE_FRAMES).toInt() % CharacterArt.STRIDE_FRAMES
+                    val f = ((s.stride * 1.3f / (2f * PI.toFloat())) * CharacterArt.STRIDE_FRAMES).toInt().plus(s.index * 2) % CharacterArt.STRIDE_FRAMES
                     if (f < 0) f + CharacterArt.STRIDE_FRAMES else f
                 }
                 else -> 0
@@ -1160,7 +1192,7 @@ class Renderer(private val density: Float) {
         if (bk > 0f && !stunned) {
             val nx = sx + ch.numberDx(fi) * scale
             val ny = sy + ch.numberDy(fi) * scale
-            val ts = 1.55f * k
+            val ts = 1.8f * k
             val str = if (s.number in 0..99) numberStr[s.number] else s.number.toString()
             canvas.save()
             canvas.translate(nx, ny)

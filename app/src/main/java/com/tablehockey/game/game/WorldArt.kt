@@ -76,7 +76,7 @@ class WorldArt {
         p.shader = null
 
         // Arena light reflections: flattened soft hot-spots in a row.
-        p.shader = RadialGradient(0f, 0f, 26f, Color.argb(95, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP)
+        p.shader = RadialGradient(0f, 0f, 26f, Color.argb(150, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP)
         for (lx in floatArrayOf(-72f, -36f, 0f, 36f, 72f)) {
             for (ly in floatArrayOf(-14f, 15f)) {
                 c.save()
@@ -88,6 +88,16 @@ class WorldArt {
         }
         p.shader = null
 
+        // Soft specular sheen bands across the ice, like the arena lights on a fresh surface.
+        for (band in 0..1) {
+            c.save()
+            c.rotate(-16f + band * 10f)
+            p.shader = LinearGradient(0f, -9f, 0f, 9f, intArrayOf(Color.argb(0, 255, 255, 255), Color.argb(70, 255, 255, 255), Color.argb(0, 255, 255, 255)), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
+            c.translate(0f, -14f + band * 30f)
+            c.drawRect(-260f, -9f, 260f, 9f, p)
+            p.shader = null
+            c.restore()
+        }
         // Long glassy streaks left by the resurfacer.
         p.style = Paint.Style.STROKE
         p.strokeCap = Paint.Cap.ROUND
@@ -124,7 +134,7 @@ class WorldArt {
             path.moveTo(x, y)
             path.quadTo((x + ex) * 0.5f - sin(ang) * bend, (y + ey) * 0.5f + kotlin.math.cos(ang) * bend, ex, ey)
             p.strokeWidth = 0.05f + rng.nextFloat() * 0.07f
-            p.color = if (i % 4 == 0) Color.argb(12 + rng.nextInt(14), 110, 145, 180) else Color.argb(14 + rng.nextInt(20), 255, 255, 255)
+            p.color = if (i % 4 == 0) Color.argb(24 + rng.nextInt(24), 110, 145, 180) else Color.argb(26 + rng.nextInt(30), 255, 255, 255)
             c.drawPath(path, p)
         }
 
@@ -532,16 +542,16 @@ class WorldArt {
     }
 
     private val layers = arrayOf(
-        Layer(-Rink.HALF_W - 4f, 9f, 300f, 1f),
-        Layer(-Rink.HALF_W - 12f, 11f, 330f, 0.88f),
-        Layer(-Rink.HALF_W - 24f, 14f, 380f, 0.74f)
+        Layer(-Rink.HALF_W - 4f, 9f, 300f, 1.05f),
+        Layer(-Rink.HALF_W - 12f, 11f, 330f, 1.0f),
+        Layer(-Rink.HALF_W - 24f, 14f, 380f, 0.95f)
     )
     private var sideStand: Bitmap? = null
     private val standPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val sideVerts = FloatArray(8)
     private val sideTex = FloatArray(8)
     private val sideIdx = shortArrayOf(0, 1, 2, 2, 1, 3)
-    private val sidePaint = Paint(Paint.FILTER_BITMAP_FLAG).apply { colorFilter = android.graphics.LightingColorFilter(0xFF8C93A6.toInt(), 0x00000000) }
+    private val sidePaint = Paint(Paint.FILTER_BITMAP_FLAG).apply { colorFilter = android.graphics.LightingColorFilter(0xFFB4BACB.toInt(), 0x00000000) }
     private val skin = intArrayOf(
         Color.parseColor("#F2C9A5"), Color.parseColor("#E0A87C"), Color.parseColor("#C58C5E"),
         Color.parseColor("#8D5A3B"), Color.parseColor("#5C3A26"), Color.parseColor("#F7D9C0")
@@ -551,9 +561,9 @@ class WorldArt {
         Color.parseColor("#C9A25B"), Color.parseColor("#8A8A8A"), Color.parseColor("#0A0A0A")
     )
     private val shirts = intArrayOf(
-        Color.parseColor("#1E293B"), Color.parseColor("#334155"), Color.parseColor("#7F1D1D"), Color.parseColor("#1E3A8A"),
-        Color.parseColor("#374151"), Color.parseColor("#9A3412"), Color.parseColor("#14532D"), Color.parseColor("#E2E8F0"),
-        Color.parseColor("#FDE68A"), Color.parseColor("#6D28D9"), Color.parseColor("#0F766E")
+        Color.parseColor("#D62839"), Color.parseColor("#E23A4A"), Color.parseColor("#F1F5F9"), Color.parseColor("#FFFFFF"),
+        Color.parseColor("#F2C230"), Color.parseColor("#2D5BD8"), Color.parseColor("#EA6A1E"), Color.parseColor("#14A38B"),
+        Color.parseColor("#C2185B"), Color.parseColor("#7C4DFF"), Color.parseColor("#2B3A57"), Color.parseColor("#F1F5F9")
     )
 
     private fun shade(color: Int, f: Float): Int =
@@ -582,9 +592,9 @@ class WorldArt {
         val rows = (hFt / rowH).toInt() + 1
         for (r in 0 until rows) {
             val yb = hFt - r * rowH
-            val rd = dim * (1f - r * 0.05f).coerceAtLeast(0.5f)
+            val rd = dim * (1f - r * 0.04f).coerceAtLeast(0.75f)
             p.style = Paint.Style.FILL
-            p.color = shade(Color.parseColor("#141C2E"), rd)
+            p.color = shade(Color.parseColor("#2A3556"), rd)
             c.drawRect(0f, yb - 0.1f, wFt, yb + 0.6f, p)
             var x = 0.6f + rng.nextFloat() * 0.5f
             var idx = 0
@@ -597,7 +607,7 @@ class WorldArt {
                     } else {
                         val q = rng.nextFloat()
                         val shirt = when {
-                            q < 0.40f -> if (x < wFt / 2f) home else away
+                            q < 0.45f -> if (x < wFt / 2f) home else away
                             q < 0.46f -> if (x < wFt / 2f) away else home
                             else -> shirts[rng.nextInt(shirts.size)]
                         }
@@ -630,12 +640,10 @@ class WorldArt {
             val bh = (l.hFt * STAND_PX).toInt()
             val bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.RGB_565)
             val c = Canvas(bmp)
-            c.drawColor(shade(Color.parseColor("#0A101C"), l.dim))
+            c.drawColor(shade(Color.parseColor("#1B2542"), l.dim))
             c.scale(STAND_PX, STAND_PX)
             fanRows(c, l.wFt, l.hFt, home, away, l.dim, rng)
             val p = Paint(Paint.ANTI_ALIAS_FLAG)
-            p.color = Color.argb(if (li == 0) 170 else 110, 140, 175, 220)
-            c.drawRect(0f, l.hFt - 0.35f, l.wFt, l.hFt, p)
             if (li == 2) {
                 // Arena lights glowing in the rafters.
                 var x = 4f
@@ -647,9 +655,6 @@ class WorldArt {
                     x += 17f
                 }
             }
-            // Shade toward the top of each tier so the decks read as separate.
-            p.shader = LinearGradient(0f, 0f, 0f, l.hFt, Color.argb(120, 2, 5, 12), Color.argb(0, 2, 5, 12), Shader.TileMode.CLAMP)
-            c.drawRect(0f, 0f, l.wFt, l.hFt, p)
             l.bmp?.recycle()
             l.bmp = bmp
         }
