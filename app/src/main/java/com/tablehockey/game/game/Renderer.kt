@@ -241,6 +241,9 @@ class Renderer(private val density: Float) {
         arrayOfNulls<Bitmap>(CharacterArt.FACINGS * CharacterArt.GOALIE_STANCES)
     )
     private val refSpr = arrayOfNulls<Bitmap>(CharacterArt.FACINGS * CharacterArt.STRIDE_FRAMES)
+    // per-player head sprites (index = player index * FACINGS + facing) and the referee's heads
+    private val headSpr = arrayOf(arrayOfNulls<Bitmap>(6 * CharacterArt.FACINGS), arrayOfNulls<Bitmap>(6 * CharacterArt.FACINGS))
+    private val refHead = arrayOfNulls<Bitmap>(CharacterArt.FACINGS)
     private val spriteInfo = arrayOfNulls<TeamInfo>(2)
     private val spritePaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
     private val spriteDst = RectF()
@@ -487,6 +490,8 @@ class Renderer(private val density: Float) {
             for (a in skaterSpr) for (i in a.indices) { a[i]?.recycle(); a[i] = null }
             for (a in goalieSpr) for (i in a.indices) { a[i]?.recycle(); a[i] = null }
             for (i in refSpr.indices) { refSpr[i]?.recycle(); refSpr[i] = null }
+            for (a in headSpr) for (i in a.indices) { a[i]?.recycle(); a[i] = null }
+            for (i in refHead.indices) { refHead[i]?.recycle(); refHead[i] = null }
             spriteInfo[0] = null
             spriteInfo[1] = null
         }
@@ -497,6 +502,7 @@ class Renderer(private val density: Float) {
             warmGen++
             for (i in skaterSpr[t].indices) { skaterSpr[t][i]?.recycle(); skaterSpr[t][i] = null }
             for (i in goalieSpr[t].indices) { goalieSpr[t][i]?.recycle(); goalieSpr[t][i] = null }
+            for (i in headSpr[t].indices) { headSpr[t][i]?.recycle(); headSpr[t][i] = null }
         }
     }
 
@@ -529,6 +535,10 @@ class Renderer(private val density: Float) {
                 }
                 for (stance in 0..1) for (f in 0 until nf) for (tm in 0..1) {
                     put(goalieSpr[tm], stance * nf + f) { art.goalie(infos[tm], f, stance) }
+                }
+                for (tm in 0..1) for (pl in 0 until 6) for (f in 0 until nf) {
+                    val num = world.teams[tm].skaters[pl].number
+                    put(headSpr[tm], pl * nf + f) { art.head(infos[tm], tm, num, false, f) }
                 }
             } catch (_: Throwable) {
                 // Warming is only an optimisation; the lazy path still works.
@@ -1209,7 +1219,18 @@ class Renderer(private val density: Float) {
         if (frame < 0) frame += CharacterArt.STRIDE_FRAMES
         val idx = frame * CharacterArt.FACINGS + fi
         val bmp = refSpr[idx] ?: ch.skater(world.teams[0].info, fi, frame, true).also { refSpr[idx] = it }
-        drawBillboard(canvas, ch, bmp, camera.px(art.refX, art.refY), camera.py(art.refY), k / ch.pxPerFt)
+        val rsx = camera.px(art.refX, art.refY)
+        val rsy = camera.py(art.refY)
+        val rscale = k / ch.pxPerFt
+        drawBillboard(canvas, ch, bmp, rsx, rsy, rscale)
+        val hb = refHead[fi] ?: ch.head(world.teams[0].info, 2, 0, true, fi).also { refHead[fi] = it }
+        drawHead(canvas, ch, hb, rsx + ch.headDx(fi, false, true) * rscale, rsy + ch.headDy(fi, false, true) * rscale, rscale)
+    }
+
+    private fun drawHead(canvas: Canvas, ch: CharacterArt, hb: Bitmap, cx: Float, cy: Float, scale: Float) {
+        val hs = hb.width * scale * 0.5f
+        spriteDst.set(cx - hs, cy - hs, cx + hs, cy + hs)
+        canvas.drawBitmap(hb, null, spriteDst, spritePaint)
     }
 
     private fun drawSkater(canvas: Canvas, world: World, s: Skater, controlled: Boolean, charge: Float) {
@@ -1233,6 +1254,7 @@ class Renderer(private val density: Float) {
         val stunned = s.stunTimer > 0f
         val scale = k / ch.pxPerFt
         val spr: Bitmap
+        var fallenPose = false
         if (s.actsAsGoalie(world)) {
             val stance = when {
                 s.goalieAction == GoalieAction.PAD_STACK -> if (s.padStackDir >= 0f) 2 else 3
@@ -1254,9 +1276,15 @@ class Renderer(private val density: Float) {
                 else -> 0
             }
             val idx = frame * CharacterArt.FACINGS + fi
+            fallenPose = frame == CharacterArt.F_FALLEN
             spr = skaterSpr[s.team][idx] ?: ch.skater(info, fi, frame, false).also { skaterSpr[s.team][idx] = it }
         }
         drawBillboard(canvas, ch, spr, sx, sy, scale)
+        if (!s.actsAsGoalie(world)) {
+            val hi = s.index * CharacterArt.FACINGS + fi
+            val hb = headSpr[s.team][hi] ?: ch.head(info, s.team, s.number, false, fi).also { headSpr[s.team][hi] = it }
+            drawHead(canvas, ch, hb, sx + ch.headDx(fi, fallenPose, false) * scale, sy + ch.headDy(fi, fallenPose, false) * scale, scale)
+        }
 
         if (controlled) {
             // Small downward triangle above the head.

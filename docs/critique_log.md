@@ -461,3 +461,10 @@ Wiring (SoundManager): OFFSIDE and ICING play whistle_short; the WHISTLE event t
 | VGK | B4975A / 333F42 | FFFFFF / B4975A |
 | WSH | C8102E / 041E42 | FFFFFF / C8102E |
 | WPG | 041E42 / 004C97 | FFFFFF / 041E42 |
+
+## Faces (builder)
+
+- Heads are now separate small sprites (CharacterArt.head, `headPx` = 3 ft square, about 39 px at the 13 px/ft cap, 6 KB each) drawn by the renderer over the body sprites; the body sprites no longer contain a head and keep exactly their old size. Heads cache lazily per (team, player index, facing) = 192 tiny bitmaps (about 1.2 MB), warmed by the existing SpriteWarm thread; per-frame cost is one extra drawBitmap per skater, no allocation. Estimated build cost 0.3-0.5 ms per head, about 60-100 ms total on the background thread, nothing on the game thread beyond the lazy fallback.
+- Features: hair at the nape and sideburns, helmet with a team-colour crown stripe, ears under the helmet, face disc with eye whites + pupils + brows, nose, mouth (or mouthguard), cheek highlight and shade (light from the upper left), stubble or full beard on some, tinted visor on about a third, head drawn 12% larger. Features sit in front of the helmet in 3D, so the existing back-to-front ordering hides them when the player faces away (only hair, ears and helmet back remain) and foreshortens them in 3/4 and profile views. Head position follows the pose (standing or fallen). Referee: plain face with a black cap and peak, no hair/beard/visor variants. Goalies keep their baked head with a new mask: team-colour stripe over the crown, dark face opening, cage bars, eye slits, steel ring.
+- Variety: a pure integer hash of (team, jersey number) picks skin tone (5), hair colour (6), stubble/beard, visor, mouthguard colour, so host and guest agree; no Random state is used. The pulled-goalie skater uses the same path.
+- Not done: no per-pose head tilt (head only follows the pose position); the 13 px/ft cap leaves the face about 9 px across before screen scaling, so eyes are bold 3 px dots and the finest cues (brows, mouth) only read on larger screens.
