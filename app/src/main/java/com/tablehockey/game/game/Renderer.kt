@@ -41,6 +41,10 @@ class Renderer(private val density: Float) {
     private val rinkRect = RectF(-Rink.HALF_L, -Rink.HALF_W, Rink.HALF_L, Rink.HALF_W)
     private val rinkPath = Path().apply { addRoundRect(rinkRect, Rink.CORNER_R, Rink.CORNER_R, Path.Direction.CW) }
     private val tmpRect = RectF()
+    private val hud = HudRenderer(density)
+
+    /** Set by the view while paused so HUD animations (goal band, splash, trophy) freeze. */
+    @Volatile var hudFrozen = false
     private val tmpPath = Path()
 
     private var crowd: Bitmap? = null
@@ -545,6 +549,7 @@ class Renderer(private val density: Float) {
             faceoffPulse.alpha = 200
             canvas.drawCircle(world.faceoffX, world.faceoffY, r, faceoffPulse)
         }
+        hud.drawCelebrationGround(canvas, world, camera)  // goal ring / net glow sit on the ice, under the players
         for (s in world.allSkaters) {
             if (!world.isShootout || kotlin.math.abs(s.y) < 45f) drawShadow(canvas, s)
         }
@@ -562,11 +567,14 @@ class Renderer(private val density: Float) {
         }
         canvas.restore()
 
-        drawScoreboard(canvas, world)
+        hud.update(world, localTeam, if (hudFrozen) 0f else dt, camera.screenW, camera.screenH)
+        hud.drawCelebrationBack(canvas, world, camera)
+        hud.drawScoreboard(canvas, world)
         drawShootoutControls(canvas, world, localTeam)
-        drawBanner(canvas, world)
-        if (controls != null) drawControls(canvas, world, localTeam, controls)
+        hud.drawBanner(canvas, world)
+        if (controls != null) hud.drawControls(canvas, world, localTeam, controls)
         drawPauseButton(canvas)
+        hud.drawOverlays(canvas, world)
     }
 
     // ================================================================ rink
@@ -1614,208 +1622,6 @@ class Renderer(private val density: Float) {
 
     private fun dp(v: Float) = v * density
 
-    private fun drawScoreboard(canvas: Canvas, w: World) {
-        val cx = camera.screenW / 2f
-        val width = dp(330f)
-        val height = if (w.isShootout) dp(54f) else dp(46f)
-        val top = dp(8f)
-        tmpRect.set(cx - width / 2f, top, cx + width / 2f, top + height)
-        canvas.drawRoundRect(tmpRect, dp(10f), dp(10f), hudBack)
-
-        val boxW = dp(58f)
-        hudTeamBox.color = w.teams[0].info.primary
-        tmpRect.set(cx - width / 2f + dp(4f), top + dp(4f), cx - width / 2f + dp(4f) + boxW, top + height - dp(4f))
-        canvas.drawRoundRect(tmpRect, dp(8f), dp(8f), hudTeamBox)
-        hudText.textSize = dp(17f)
-        hudText.color = w.teams[0].info.text
-        canvas.drawText(w.teams[0].info.abbr, tmpRect.centerX(), tmpRect.centerY() + dp(6f), hudText)
-
-        hudTeamBox.color = w.teams[1].info.primary
-        tmpRect.set(cx + width / 2f - dp(4f) - boxW, top + dp(4f), cx + width / 2f - dp(4f), top + height - dp(4f))
-        canvas.drawRoundRect(tmpRect, dp(8f), dp(8f), hudTeamBox)
-        hudText.color = w.teams[1].info.text
-        canvas.drawText(w.teams[1].info.abbr, tmpRect.centerX(), tmpRect.centerY() + dp(6f), hudText)
-
-        hudText.color = Color.WHITE
-        hudText.textSize = dp(24f)
-        val scoreY = if (w.isShootout) top + dp(27f) else top + dp(33f)
-        canvas.drawText(w.teams[0].score.toString(), cx - dp(92f), scoreY, hudText)
-        canvas.drawText(w.teams[1].score.toString(), cx + dp(92f), scoreY, hudText)
-
-        if (w.isShootout) {
-            hudText.textSize = dp(18f)
-            canvas.drawText(String.format("%.1fs", w.shootoutTimer.coerceAtLeast(0f)), cx, top + dp(21f), hudText)
-            hudSmall.textSize = dp(10f)
-            val stText = if (w.shootoutRound <= 5) "ROUND ${w.shootoutRound}" else "SUDDEN DEATH"
-            canvas.drawText(stText, cx, top + dp(35f), hudSmall)
-            val shooterAbbr = w.teams[w.shootoutTurn].info.abbr
-            canvas.drawText("$shooterAbbr SHOOTING", cx, top + dp(47f), hudSmall)
-
-            // 5-round shootout indicators positioned directly under team scores
-            val dotR = dp(3.2f)
-            val dotSpacing = dp(8.5f)
-            val dotY = top + dp(42f)
-            val t0StartX = (cx - dp(92f)) - 2 * dotSpacing
-            for (r in 0 until 5) {
-                val res = w.shootoutAttempts[0][r]
-                val dx = t0StartX + r * dotSpacing
-                if (res == 1) {
-                    shootoutDotFill.color = Color.parseColor("#22C55E")
-                    canvas.drawCircle(dx, dotY, dotR, shootoutDotFill)
-                } else if (res == 2) {
-                    shootoutDotFill.color = Color.parseColor("#EF4444")
-                    canvas.drawCircle(dx, dotY, dotR, shootoutDotFill)
-                } else {
-                    shootoutDotStroke.color = Color.parseColor("#64748B")
-                    canvas.drawCircle(dx, dotY, dotR, shootoutDotStroke)
-                }
-            }
-            val t1StartX = (cx + dp(92f)) - 2 * dotSpacing
-            for (r in 0 until 5) {
-                val res = w.shootoutAttempts[1][r]
-                val dx = t1StartX + r * dotSpacing
-                if (res == 1) {
-                    shootoutDotFill.color = Color.parseColor("#22C55E")
-                    canvas.drawCircle(dx, dotY, dotR, shootoutDotFill)
-                } else if (res == 2) {
-                    shootoutDotFill.color = Color.parseColor("#EF4444")
-                    canvas.drawCircle(dx, dotY, dotR, shootoutDotFill)
-                } else {
-                    shootoutDotStroke.color = Color.parseColor("#64748B")
-                    canvas.drawCircle(dx, dotY, dotR, shootoutDotStroke)
-                }
-            }
-        } else {
-            hudText.textSize = dp(19f)
-            canvas.drawText(w.clockText(), cx, top + dp(23f), hudText)
-            hudSmall.textSize = dp(11f)
-            canvas.drawText(w.periodText() + (if (w.overtime) "  SUDDEN DEATH" else "  PERIOD"), cx, top + dp(39f), hudSmall)
-
-            // Shots on goal
-            hudSmall.textSize = dp(11f)
-            canvas.drawText("SHOTS  " + w.teams[0].shots + " - " + w.teams[1].shots, cx, top + height + dp(14f), hudSmall)
-        }
-
-        // Flame indicators for on-fire teams
-        if (w.isOnFire(0)) {
-            hudSmall.textSize = dp(11f)
-            hudSmall.color = Color.parseColor("#F97316")
-            canvas.drawText("🔥 ${w.fireTimer[0].toInt()}s", cx - width / 2f + dp(33f), top - dp(3f), hudSmall)
-            hudSmall.color = Color.parseColor("#CBD5E1")
-        }
-        if (w.isOnFire(1)) {
-            hudSmall.textSize = dp(11f)
-            hudSmall.color = Color.parseColor("#F97316")
-            canvas.drawText("🔥 ${w.fireTimer[1].toInt()}s", cx + width / 2f - dp(33f), top - dp(3f), hudSmall)
-            hudSmall.color = Color.parseColor("#CBD5E1")
-        }
-
-        // Power play or empty net badge
-        if (w.penaltyTeam != -1) {
-            val advTeam = w.opponent(w.penaltyTeam)
-            val pTimer = w.penaltyTimer.toInt().coerceAtLeast(0)
-            val m = pTimer / 60
-            val s = pTimer % 60
-            val ppStr = String.format("%s PP %d:%02d", advTeam.info.abbr, m, s)
-            val badgeW = dp(104f)
-            val badgeH = dp(17f)
-            val badgeY = top + height + dp(20f)
-            tmpRect.set(cx - badgeW / 2f, badgeY, cx + badgeW / 2f, badgeY + badgeH)
-            ppBadgeBack.color = advTeam.info.primary
-            ppBadgeBorder.strokeWidth = dp(1.5f)
-            canvas.drawRoundRect(tmpRect, dp(6f), dp(6f), ppBadgeBack)
-            canvas.drawRoundRect(tmpRect, dp(6f), dp(6f), ppBadgeBorder)
-            ppBadgeText.textSize = dp(10.5f)
-            ppBadgeText.color = advTeam.info.text
-            canvas.drawText(ppStr, cx, badgeY + dp(12.5f), ppBadgeText)
-        } else if (w.goaliePulled[0] || w.goaliePulled[1]) {
-            val pulledId = if (w.goaliePulled[0]) 0 else 1
-            val pTeam = w.teams[pulledId]
-            val enStr = "${pTeam.info.abbr} EMPTY NET"
-            val badgeW = dp(108f)
-            val badgeH = dp(17f)
-            val badgeY = top + height + dp(20f)
-            tmpRect.set(cx - badgeW / 2f, badgeY, cx + badgeW / 2f, badgeY + badgeH)
-            ppBadgeBack.color = Color.parseColor("#B91C1C")
-            ppBadgeBorder.strokeWidth = dp(1.5f)
-            canvas.drawRoundRect(tmpRect, dp(6f), dp(6f), ppBadgeBack)
-            canvas.drawRoundRect(tmpRect, dp(6f), dp(6f), ppBadgeBorder)
-            ppBadgeText.textSize = dp(10f)
-            ppBadgeText.color = Color.WHITE
-            canvas.drawText(enStr, cx, badgeY + dp(12.5f), ppBadgeText)
-        }
-    }
-
-    private fun drawBanner(canvas: Canvas, w: World) {
-        val text = w.banner ?: return
-        val alpha = if (w.bannerTimer < 0.4f) (w.bannerTimer / 0.4f).coerceIn(0f, 1f) else 1f
-        val cy = camera.screenH * 0.36f
-        val h = dp(96f)
-        bannerBack.alpha = (170 * alpha).toInt()
-        tmpRect.set(0f, cy - h / 2f, camera.screenW.toFloat(), cy + h / 2f)
-        canvas.drawRect(tmpRect, bannerBack)
-        bannerText.textSize = dp(if (text.length > 12) 30f else 44f)
-        bannerText.alpha = (255 * alpha).toInt()
-        canvas.drawText(text, camera.screenW / 2f, cy + dp(if (w.bannerSub != null) 4f else 14f), bannerText)
-        w.bannerSub?.let {
-            bannerSub.textSize = dp(16f)
-            bannerSub.alpha = (255 * alpha).toInt()
-            canvas.drawText(it, camera.screenW / 2f, cy + dp(30f), bannerSub)
-        }
-    }
-
-    private fun drawControls(canvas: Canvas, w: World, localTeam: Int, c: TouchControls) {
-        // Joystick.
-        val jr = c.joyRadius
-        val ax = if (c.joyActive) c.joyAnchorX else c.joyRestX
-        val ay = if (c.joyActive) c.joyAnchorY else c.joyRestY
-        ctrlBase.alpha = if (c.joyActive) 90 else 45
-        ctrlRing.strokeWidth = dp(2f)
-        ctrlRing.alpha = if (c.joyActive) 160 else 80
-        canvas.drawCircle(ax, ay, jr, ctrlBase)
-        canvas.drawCircle(ax, ay, jr, ctrlRing)
-        val kx = if (c.joyActive) c.joyKnobX else ax
-        val ky = if (c.joyActive) c.joyKnobY else ay
-        ctrlKnob.alpha = if (c.joyActive) 220 else 110
-        canvas.drawCircle(kx, ky, jr * 0.42f, ctrlKnob)
-
-        val controlled = if (localTeam >= 0) w.controlledSkater(localTeam) else null
-        val isGoalie = controlled?.isGoalie == true
-        if (isGoalie) {
-            drawButton(canvas, c.shootX, c.shootY, c.shootR, "BUTTERFLY", "5-hole", c.shootDown, Color.parseColor("#DC2626"))
-            drawButton(canvas, c.passX, c.passY, c.passR, "POKE", "stick", c.passDown, Color.parseColor("#2563EB"))
-            drawButton(canvas, c.hitX, c.hitY, c.hitR, "PAD STACK", "sprawl", c.hitDown, Color.parseColor("#D97706"))
-        } else {
-            val hasPuck = localTeam >= 0 && w.puck.carrier != null && w.puck.carrier === controlled
-            drawButton(canvas, c.shootX, c.shootY, c.shootR, "SHOOT", if (hasPuck) "" else "poke", c.shootDown, Color.parseColor("#DC2626"))
-            drawButton(canvas, c.passX, c.passY, c.passR, "PASS", if (hasPuck) "" else "switch", c.passDown, Color.parseColor("#2563EB"))
-            drawButton(canvas, c.hitX, c.hitY, c.hitR, "HIT", "", c.hitDown, Color.parseColor("#D97706"))
-            if (c.shootDown && hasPuck) {
-                val charge = c.currentCharge()
-                chargeArc.strokeWidth = dp(5f)
-                tmpRect.set(c.shootX - c.shootR - dp(6f), c.shootY - c.shootR - dp(6f), c.shootX + c.shootR + dp(6f), c.shootY + c.shootR + dp(6f))
-                canvas.drawArc(tmpRect, -90f, 360f * charge, false, chargeArc)
-            }
-        }
-    }
-
-    private fun drawButton(canvas: Canvas, x: Float, y: Float, r: Float, label: String, sub: String, down: Boolean, color: Int) {
-        btnFill.color = color
-        btnFill.alpha = if (down) 230 else 120
-        canvas.drawCircle(x, y, r, btnFill)
-        ctrlRing.strokeWidth = dp(2f)
-        ctrlRing.alpha = if (down) 255 else 150
-        canvas.drawCircle(x, y, r, ctrlRing)
-        btnText.textSize = r * 0.42f
-        btnText.alpha = 255
-        canvas.drawText(label, x, y + (if (sub.isEmpty()) r * 0.15f else r * 0.02f), btnText)
-        if (sub.isNotEmpty()) {
-            btnText.textSize = r * 0.26f
-            btnText.alpha = 200
-            canvas.drawText(sub, x, y + r * 0.42f, btnText)
-        }
-    }
-
     private fun drawPauseButton(canvas: Canvas) {
         val s = dp(40f)
         val x = camera.screenW - s - dp(10f)
@@ -1843,8 +1649,8 @@ class Renderer(private val density: Float) {
 
             val bw = dp(154f)
             val bh = dp(42f)
-            val bx = dp(14f)
-            val by = dp(10f)
+            val bx = dp(10f)
+            val by = dp(76f)
             switchShooterRect.set(bx, by, bx + bw, by + bh)
 
             canvas.drawRoundRect(switchShooterRect, dp(8f), dp(8f), switchShooterPaint)
@@ -1868,8 +1674,8 @@ class Renderer(private val density: Float) {
             // Defending turn! Indicate user is controlling the goalie
             val bw = dp(130f)
             val bh = dp(32f)
-            val bx = dp(14f)
-            val by = dp(10f)
+            val bx = dp(10f)
+            val by = dp(76f)
             switchShooterRect.set(0f, 0f, 0f, 0f)
             tmpRect.set(bx, by, bx + bw, by + bh)
 
@@ -1896,6 +1702,7 @@ class Renderer(private val density: Float) {
     }
 
     fun release() {
+        hud.release()
         crowd?.recycle()
         crowd = null
         winterLandscape?.recycle()

@@ -66,6 +66,16 @@ class GameView @JvmOverloads constructor(
     @Volatile private var paused = false
     private var gameThread: Thread? = null
     private var matchOverReported = false
+    private var pendingOver: Runnable? = null
+    private var pendingOverAt = 0L
+
+    /** True while the finished match is on screen (used to drop stale result-dialog retries). */
+    fun isMatchOver(): Boolean = matchOverReported && world?.phase == Phase.GAME_OVER
+
+    private fun cancelPendingOver() {
+        pendingOver?.let { removeCallbacks(it) }
+        pendingOver = null
+    }
     private var crowdStarted = false
     private var musicCheckTimer = 0f
     private var skateTimer = 0f
@@ -144,6 +154,7 @@ class GameView @JvmOverloads constructor(
             simulation = sim
         }
         matchOverReported = false
+        cancelPendingOver()
         renderer.camera.snapTo(0f, 0f)
         world = w
     }
@@ -200,6 +211,7 @@ class GameView @JvmOverloads constructor(
             w.banner = null
             simulation?.start()
             matchOverReported = false
+            cancelPendingOver()
         }
         musicCheckTimer = 0f
     }
@@ -212,6 +224,15 @@ class GameView @JvmOverloads constructor(
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            // Once the match is over: a tap skips the trophy window; pause is not available.
+            if (world?.phase == Phase.GAME_OVER) {
+                val r = pendingOver
+                if (r != null && android.os.SystemClock.uptimeMillis() - pendingOverAt > 700L) {
+                    removeCallbacks(r)
+                    r.run()
+                }
+                return true
+            }
             if (renderer.isPauseHit(event.x, event.y)) {
                 listener?.onPauseRequested()
                 return true
@@ -304,6 +325,7 @@ class GameView @JvmOverloads constructor(
                 val t2 = System.nanoTime()
                 if (canvas != null) {
                     try {
+                        renderer.hudFrozen = paused
                         synchronized(w) { renderer.draw(canvas, w, localTeam, controls, dt) }
                     } finally {
                         recordNs += System.nanoTime() - t2
@@ -490,7 +512,11 @@ class GameView @JvmOverloads constructor(
             crowdStarted = false
             MusicManager.stop()
             soundManager?.playResult(won)
-            post { listener?.onMatchOver(home, away, won) }
+            // Delay the result dialog so the trophy / confetti finish is visible first.
+            val r = Runnable { pendingOver = null; listener?.onMatchOver(home, away, won) }
+            pendingOver = r
+            pendingOverAt = android.os.SystemClock.uptimeMillis()
+            postDelayed(r, 3800L)
         }
     }
 }

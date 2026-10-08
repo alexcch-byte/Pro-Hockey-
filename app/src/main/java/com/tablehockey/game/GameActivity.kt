@@ -127,7 +127,14 @@ class GameActivity : AppCompatActivity() {
     }
 
     private fun showMatchOverDialog(homeScore: Int, awayScore: Int, localWon: Boolean?) {
-        if (dialogShowing) return
+        if (isFinishing || isDestroyed) return
+        // A restart or a new match in the meantime makes this result stale: drop it.
+        if (!gameView.isMatchOver()) return
+        if (dialogShowing) {
+            // Another dialog (e.g. pause) is up: try again shortly so the result is never dropped.
+            gameView.postDelayed({ showMatchOverDialog(homeScore, awayScore, localWon) }, 400L)
+            return
+        }
         dialogShowing = true
         val home = TeamInfo.byIndex(config.homeTeam)
         val away = TeamInfo.byIndex(config.awayTeam)
