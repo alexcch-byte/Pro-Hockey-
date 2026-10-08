@@ -42,8 +42,6 @@ class WorldArt {
 
     private val tmpRect = RectF()
     private val signs = floatArrayOf(-1f, 1f)
-    private val isigns = intArrayOf(-1, 1)
-    private val stripeX = floatArrayOf(-0.62f, -0.2f, 0.25f)
 
     // ------------------------------------------------------------------ ice overlay
 

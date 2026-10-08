@@ -436,7 +436,7 @@ class Renderer(private val density: Float) {
 
     /** Rebuilds sprites, stands, walls and the baked rink when the zoom, teams or arena change. */
     private fun ensureArt(world: World) {
-        val rScale = min(camera.scale, 15f)
+        val rScale = min(camera.scale, 13f)
         if (charArt == null || kotlin.math.abs(charArtScale - rScale) > 0.01f) {
             clearSprites()
             charArt = CharacterArt(rScale)

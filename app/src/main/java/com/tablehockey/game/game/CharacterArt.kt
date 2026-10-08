@@ -39,8 +39,8 @@ class CharacterArt(val pxPerFt: Float) {
         const val GOALIE_STANCES = 4
 
         private const val ABOVE_FT = 8.2f
-        private const val BELOW_FT = 3.6f
-        private const val WIDE_FT = 12.4f
+        private const val BELOW_FT = 5.0f
+        private const val WIDE_FT = 14f
         private const val GOALIE_SC = 1.15f
 
         private const val CAP = 0
