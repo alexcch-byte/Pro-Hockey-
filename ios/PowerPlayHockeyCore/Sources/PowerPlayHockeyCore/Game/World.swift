@@ -137,13 +137,16 @@ final class World {
 
     var events: [GameEvent] = []
 
+    public let allSkaters: [Skater]
+
     init(homeInfo: TeamInfo, awayInfo: TeamInfo, periodLength: Int) {
         self.periodLength = periodLength
-        self.teams = [Team(id: 0, info: homeInfo, attackDir: 1), Team(id: 1, info: awayInfo, attackDir: -1)]
+        let t0 = Team(id: 0, info: homeInfo, attackDir: 1)
+        let t1 = Team(id: 1, info: awayInfo, attackDir: -1)
+        self.teams = [t0, t1]
+        self.allSkaters = t0.skaters + t1.skaters
         self.clock = Float(periodLength)
     }
-
-    var allSkaters: [Skater] { teams[0].skaters + teams[1].skaters }
 
     func team(_ id: Int) -> Team { teams[id] }
     func opponent(_ id: Int) -> Team { teams[1 - id] }

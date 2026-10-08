@@ -31,7 +31,7 @@ adb: `C:/Users/strid/AppData/Local/Android/Sdk/platform-tools/adb.exe`
 
 ## Code map (`app/src/main/java/com/tablehockey/game`)
 
-- `MainActivity`, `MatchSettingsActivity` (teams, period length, difficulty, audio sliders),
+- `MainActivity`, `TournamentActivity` (bracket/series play; games run with `uncappedOvertime`), `MatchSettingsActivity` (teams, period length, difficulty, audio sliders),
   `HowToPlayActivity` + `ControlsDiagramView`, `WifiLobbyActivity` (WiFi and Bluetooth lobby),
   `GameActivity` (immersive, pause/match-over dialogs), `AudioSliders` (shared slider binding).
 - `model/`: `TeamInfo` (club list: 20 Calgary-area Timbits U7 clubs first, then 8 fictional pro clubs;
@@ -44,8 +44,19 @@ adb: `C:/Users/strid/AppData/Local/Android/Sdk/platform-tools/adb.exe`
     `Team`, `Skater` (C/LW/RW/LD/RD/G, timers for stun/poke/check/swing), `Puck`.
   - `Simulation`: authoritative match flow (faceoffs, whistles, periods, sudden-death OT),
     possession, shooting (aim assist by difficulty), passing, poke/body checks, goalie saves
-    (cover vs rebound, difficulty leak), scoring. `AiSettings` in `World.kt` holds all difficulty numbers.
-  - `AIController`: skater formations/chasing/carrier decisions and goalie positioning.
+    (cover vs rebound, difficulty leak), scoring. `AiSettings` in `World.kt` holds all difficulty numbers (incl. `seamPass`, `tripChance`, `goalieLead`).
+    - Icing: `icingArmed`, 6 ft wave-off, short-handed team exempt; `GameEvent.ICING` is the last ordinal.
+    - Penalties: one active penalty at a time (`penaltyTeam/Timer/PlayerIndex`), 40 s of live-play clock, at most one
+      +20 s extension for a second foul by the same team (a foul by the other team is treated as offsetting and not
+      called), offender sits in the box at y +-44.5. AI skaters mostly only brush past away from the puck
+      (`AI_BRUSH_CHANCE`); human interference is `INTERFERENCE_CHANCE` (6%). Banners show the same seconds clock as the HUD.
+    - Overtime: sudden death capped at 180 s (ends "FINAL - TIE"); `uncappedOvertime` (set by GameView for tournament
+      games) removes the cap. `Simulation.stats` / `statsLine()` count shots/goals/penalties/icings etc. and
+      `gameOver()` logs `PowerPlay: FINAL <score> <stats>`; use it to balance difficulty.
+  - `AIController`: skater formations/chasing/carrier decisions and goalie positioning. Man-to-man `assignMark`
+    (sticky, goal-side), `guardHanger` (one eligible D stays on an opponent loitering deep in our zone; enter -55 ft /
+    leave -48 ft hysteresis), `pickChasers` with net-crash chasers near the goal line, power-play umbrella and
+    penalty-kill box spots, carrier seam pass (`seamPass`), and goalie lead (`goalieLead`).
   - `PhysicsEngine`: skater movement/collisions, puck glide, boards, posts, nets. Goals use a swept
     test (must cross the goal line from the front between the posts); carried pucks are kept out of nets.
   - `Camera` is a perspective projection (homography): `px(wx, wy)`, `py(wy)`, `depth(wy)`,
@@ -106,4 +117,6 @@ script after editing a sound, then rebuild. No ffmpeg here, so music ships as 22
 
 - Verified on the Fire HD 8: single player, all menus, audio, 55-59 fps (2026-09-23, GPU canvas + sprites;
   was 15-18 fps with the software canvas and vector players).
+- The penalty, icing, OT, tournament, AI-marking and stats work (critique cycles 1-7) is built and compiles but
+  has not been device-tested or balance-measured.
 - Not verified: WiFi and Bluetooth matches between two real devices (only one tablet available).

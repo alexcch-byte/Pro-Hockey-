@@ -7,7 +7,7 @@ import com.tablehockey.game.model.TeamInfo
 enum class Phase { FACEOFF, PLAY, WHISTLE, GOAL, PERIOD_END, GAME_OVER }
 
 /** One-shot things that happened this tick; the view turns them into sounds / effects. */
-enum class GameEvent { SHOT, PASS, BOARDS, POST, GOAL, HIT, POKE, SAVE, WHISTLE, HORN, FACEOFF_DROP, PICKUP, PERIOD_END, GAME_OVER, FACEOFF_SET, ONE_TIMER, PENALTY, ON_FIRE, DEKE, GLASS_SHATTER, GOALIE_SAVE_MOVE }
+enum class GameEvent { SHOT, PASS, BOARDS, POST, GOAL, HIT, POKE, SAVE, WHISTLE, HORN, FACEOFF_DROP, PICKUP, PERIOD_END, GAME_OVER, FACEOFF_SET, ONE_TIMER, PENALTY, ON_FIRE, DEKE, GLASS_SHATTER, GOALIE_SAVE_MOVE, ICING }
 
 
 /** Per-frame command state from a human controller (touch or network). */
@@ -52,24 +52,30 @@ class AiSettings(
     val faceoffHumanBias: Float, // probability the human wins a draw
     val goalieLeak: Float,      // chance an AI-goalie save lets the puck through (five-hole)
     val goaliePadScale: Float,  // size of the AI goalie's blocking area
-    val aimAssist: Float        // 0..1 how strongly human shots steer to the open side
+    val aimAssist: Float,       // 0..1 how strongly human shots steer to the open side
+    val seamPass: Float = 0.25f, // per decision tick: chance a carrier in the offensive zone looks for a better-placed open teammate
+    val tripChance: Float = 0.04f, // chance a successful poke check is called as tripping
+    val goalieLead: Float = 0.12f  // seconds of puck velocity the AI goalie anticipates
 ) {
     companion object {
         fun forDifficulty(d: AiDifficulty) = when (d) {
             AiDifficulty.EASY -> AiSettings(
                 speedMul = 0.72f, reaction = 0.6f, shotAccuracy = 0.5f, passAccuracy = 0.65f, shootTendency = 0.45f,
                 pokeChance = 0.18f, hitChance = 0.06f, goalieSkill = 0.5f, coverChance = 0.15f, faceoffHumanBias = 0.65f,
-                goalieLeak = 0.3f, goaliePadScale = 0.75f, aimAssist = 1f
+                goalieLeak = 0.3f, goaliePadScale = 0.75f, aimAssist = 1f,
+                seamPass = 0.12f, goalieLead = 0.04f
             )
             AiDifficulty.MEDIUM -> AiSettings(
                 speedMul = 0.95f, reaction = 0.28f, shotAccuracy = 0.72f, passAccuracy = 0.85f, shootTendency = 0.7f,
                 pokeChance = 0.55f, hitChance = 0.35f, goalieSkill = 0.9f, coverChance = 0.3f, faceoffHumanBias = 0.5f,
-                goalieLeak = 0.1f, goaliePadScale = 0.95f, aimAssist = 0.5f
+                goalieLeak = 0.1f, goaliePadScale = 0.95f, aimAssist = 0.5f,
+                seamPass = 0.25f, goalieLead = 0.09f
             )
             AiDifficulty.HARD -> AiSettings(
                 speedMul = 1.06f, reaction = 0.15f, shotAccuracy = 0.88f, passAccuracy = 0.95f, shootTendency = 0.85f,
-                pokeChance = 0.75f, hitChance = 0.55f, goalieSkill = 1.05f, coverChance = 0.35f, faceoffHumanBias = 0.4f,
-                goalieLeak = 0f, goaliePadScale = 1.05f, aimAssist = 0f
+                pokeChance = 0.75f, hitChance = 0.55f, goalieSkill = 1.0f, coverChance = 0.25f, faceoffHumanBias = 0.4f,
+                goalieLeak = 0f, goaliePadScale = 1.05f, aimAssist = 0f,
+                seamPass = 0.4f, goalieLead = 0.12f
             )
         }
     }
@@ -136,7 +142,8 @@ class World(homeInfo: TeamInfo, awayInfo: TeamInfo, val periodLength: Int) {
     val events = ArrayList<GameEvent>()
 
 
-    val allSkaters: List<Skater> get() = teams[0].skaters + teams[1].skaters
+    /** Rosters are fixed for a World's lifetime (Team.skaters is an immutable val), so build the combined list once. */
+    val allSkaters: List<Skater> = teams[0].skaters + teams[1].skaters
 
     fun team(id: Int) = teams[id]
     fun opponent(teamId: Int) = teams[1 - teamId]

@@ -46,6 +46,7 @@ class GameActivity : AppCompatActivity() {
 
         val server = if (config.mode == GameMode.WIFI_HOST) NetworkSession.host else null
         val client = if (config.mode == GameMode.WIFI_CLIENT) NetworkSession.guest else null
+        gameView.tournament = intent.getBooleanExtra("IS_TOURNAMENT", false)
         gameView.configure(config, server, client)
 
         gameView.listener = object : GameView.GameListener {
@@ -206,6 +207,10 @@ class GameActivity : AppCompatActivity() {
             startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP))
             finish()
         }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+        return super.onKeyDown(keyCode, event)
     }
 
     override fun onPause() {

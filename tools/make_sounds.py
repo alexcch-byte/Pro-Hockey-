@@ -314,10 +314,10 @@ def add_arpeggio(song, chords, start_bar, octave=4, duty=0.25, gain=0.13, patter
         beat += 4
 
 
-def add_bass(song, chords, start_bar, gain=0.5, driving=False):
+def add_bass(song, chords, start_bar, gain=0.5, driving=False, octave=2):
     beat = start_bar * 4
     for chord in chords:
-        f = chord_notes(chord, 2)
+        f = chord_notes(chord, octave)
         root, fifth = f[0], f[2]
         if driving:
             seq = [root, root, root, root, fifth, fifth, root, root * 2]
@@ -617,8 +617,72 @@ def music_game():
     s = Song(176, 16)
     add_melody(s, lead, 0, duty=0.25, gain=0.24)
     add_arpeggio(s, chords, 0, octave=4, duty=0.5, gain=0.11, pattern=(None, 1, 2, 3))
-    add_bass(s, chords, 0, gain=0.45, driving=True)
+    add_bass(s, chords, 0, gain=0.45, driving=True, octave=3)
     add_drums(s, 16, 0, gain=0.34, busy=True)
+    return soft_clip(s.render())
+
+
+def music_game_2():
+    """'Breakaway' - second in-play loop, D minor, 168 BPM, 16 bars. Narrower
+    pulse lead over a rolling arpeggio so back-to-back matches don't repeat."""
+    chords = ["Dm", "Bb", "F", "C", "Dm", "Bb", "C", "Am",
+              "Dm", "F", "Bb", "C", "Dm", "Bb", "C", "C"]
+    lead = [
+        "D5:2 F5:2 A5:4 G5:2 F5:2 D5:4",
+        "Bb4:2 D5:2 F5:4 D5:2 F5:2 Bb5:4",
+        "A5:2 F5:2 C5:4 F5:2 A5:2 C6:4",
+        "B5:2 G5:2 E5:4 G5:2 C6:2 E6:4",
+        "F5:2 A5:2 D6:4 C6:2 A5:2 F5:4",
+        "D6:2 Bb5:2 F5:4 D5:2 F5:2 Bb5:4",
+        "E5:2 G5:2 C6:4 E6:2 D6:2 C6:4",
+        "A5:4 E5:2 A5:2 C6:4 B5:2 A5:2",
+        "D6:4 R:2 D6:2 F6:4 E6:2 D6:2",
+        "C6:2 A5:2 F5:4 A5:2 C6:2 F6:4",
+        "D6:2 F6:2 Bb5:4 D6:4 F6:4",
+        "E6:4 G6:2 E6:2 C6:4 G5:4",
+        "F6:2 E6:2 D6:4 A5:2 D6:2 F6:4",
+        "D6:2 C6:2 Bb5:4 F5:2 Bb5:2 D6:4",
+        "E6:2 D6:2 C6:2 G5:2 E5:2 G5:2 C6:4",
+        "D6:2 B5:2 G5:4 B5:2 D6:2 G6:4",
+    ]
+    s = Song(168, 16)
+    add_melody(s, lead, 0, duty=0.125, gain=0.2)
+    add_melody(s, lead, 0, duty=0.5, gain=0.04, octave_shift=-1)   # fuller body under the lead
+    add_arpeggio(s, chords, 0, octave=4, duty=0.5, gain=0.1, pattern=(0, 2, 1, 3))
+    add_bass(s, chords, 0, gain=0.45, driving=True, octave=3)
+    add_drums(s, 16, 0, gain=0.34, busy=True)
+    return soft_clip(s.render())
+
+
+def music_clutch():
+    """'Sudden Death' - faster, tenser E minor loop (192 BPM, 16 bars) that
+    takes over in overtime and in a tight final minute."""
+    chords = ["Em", "Em", "C", "D", "Em", "Em", "C", "D",
+              "Am", "Am", "C", "D", "Em", "C", "D", "D"]
+    lead = [
+        "E5:2 E5:2 G5:2 B5:2 E6:4 B5:4",
+        "G5:2 B5:2 E6:2 G6:2 F#6:4 E6:4",
+        "E6:2 C6:2 G5:2 C6:2 E6:4 G6:4",
+        "F#6:2 D6:2 A5:2 D6:2 F#6:4 A5:4",
+        "B5:2 E6:2 G6:4 F#6:2 E6:2 B5:4",
+        "E6:2 G6:2 B6:4 A6:2 G6:2 E6:4",
+        "C6:2 E6:2 G6:4 E6:2 C6:2 G5:4",
+        "A5:2 D6:2 F#6:4 E6:2 D6:2 A5:4",
+        "A5:2 C6:2 E6:4 C6:2 E6:2 A6:4",
+        "G6:2 E6:2 C6:4 A5:2 C6:2 E6:4",
+        "G5:2 C6:2 E6:4 G6:2 E6:2 C6:4",
+        "F#6:2 A6:2 D6:4 F#6:4 A6:4",
+        "G6:4 E6:2 G6:2 B6:4 G6:4",
+        "E6:4 C6:2 E6:2 G6:4 E6:4",
+        "F#6:2 E6:2 D6:2 E6:2 F#6:4 A6:4",
+        "A6:2 F#6:2 D6:2 F#6:2 B5:2 R:2 A5:4",
+    ]
+    s = Song(192, 16)
+    add_melody(s, lead, 0, duty=0.25, gain=0.22, legato=0.85)
+    add_melody(s, lead, 0, duty=0.125, gain=0.03, octave_shift=1)
+    add_arpeggio(s, chords, 0, octave=4, duty=0.25, gain=0.12)
+    add_bass(s, chords, 0, gain=0.47, driving=True, octave=3)
+    add_drums(s, 16, 0, gain=0.38, busy=True)
     return soft_clip(s.render())
 
 
@@ -981,6 +1045,25 @@ def crowd_gasp():
     return add_room(buf, 0.5, 1.8, seed=19)
 
 
+def crowd_boo():
+    """The crowd's groan at a penalty: low, falling 'boooo' from a few dozen
+    throats, with the odd sharper 'ooh' on top."""
+    r = np.random.default_rng(83)
+    n = seconds(2.0)
+    buf = np.zeros(n)
+    for _ in range(90):
+        (lo, hi), size = VOICE_TYPES[r.choice(3, p=[0.5, 0.35, 0.15])]
+        v = voice(r.uniform(0.9, 1.6), r.uniform(lo, hi) * 0.85, r.choice(["oo", "oo", "uh", "oh"]), size,
+                  shout=r.uniform(0.2, 0.5), glide=r.uniform(-4, -1.5), arch=r.uniform(0.5, 1.5),
+                  attack=r.uniform(0.08, 0.2), release=0.5, r=r)
+        put(buf, seconds(r.gamma(2.0, 0.07)), v, r.uniform(0.3, 1.0))
+    out = add_room(buf, 0.5, 1.8, seed=23)
+    out = out[:seconds(2.3)].copy()          # the room tail past this is inaudible dead air
+    k = seconds(0.3)
+    out[-k:] *= np.linspace(1.0, 0.0, k)
+    return out
+
+
 def wind_loop():
     """Outdoor pond: wind in gusts, from a low rumble up to a faint hiss
     through the trees. Every layer is periodic, so it loops perfectly."""
@@ -1152,7 +1235,11 @@ if __name__ == "__main__":
     # the octave above 11 kHz, so 22.05 kHz keeps the APK small.
     set_rate(22050)
     save("music_menu.wav", music_menu(), 0.8)
-    save("music_game.wav", music_game(), 0.8)
+    save("music_game.wav", music_game(), level=-11.5)   # pinned to the pre-cycle-2 loudness (bass moved up an octave)
+    _st = rng.bit_generator.state   # new sounds must not shift the random stream of older ones
+    save("music_game_2.wav", music_game_2(), level=-13.0)
+    save("music_clutch.wav", music_clutch(), level=-12.4)
+    rng.bit_generator.state = _st
     save("jingle_goal.wav", jingle_goal(), 0.85)
     save("jingle_period.wav", jingle_period(), 0.8)
     save("jingle_win.wav", jingle_win(), 0.85)
@@ -1173,6 +1260,7 @@ if __name__ == "__main__":
     save("crowd_roar.wav", crowd_roar(), level=-12.0)
     save("cheer.wav", crowd_cheer(), level=-11.0)
     save("gasp.wav", crowd_gasp(), level=-12.5)
+    save("boo.wav", crowd_boo(), level=-13.0)
     save("wind_loop.wav", wind_loop(), level=-17.0)
     save("tail_bright.wav", room_tail(True), level=-17.0)
     save("tail_dark.wav", room_tail(False), level=-17.0)

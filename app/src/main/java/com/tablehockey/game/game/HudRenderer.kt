@@ -805,6 +805,7 @@ class HudRenderer(private val density: Float) {
 
         val controlled = if (localTeam >= 0) w.controlledSkater(localTeam) else null
         c.dekeEnabled = controlled?.isGoalie != true
+        c.carrying = controlled != null && w.puck.carrier === controlled
         if (controlled?.isGoalie == true) {
             textButton(canvas, c.shootX, c.shootY, c.shootR, "BUTTERFLY", "5-hole", press[0], K_DC2626)
             textButton(canvas, c.passX, c.passY, c.passR, "POKE", "stick", press[1], K_2563EB)

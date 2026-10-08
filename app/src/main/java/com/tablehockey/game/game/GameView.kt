@@ -36,6 +36,8 @@ class GameView @JvmOverloads constructor(
 
     var listener: GameListener? = null
     var soundManager: SoundManager? = null
+    /** Tournament match: ties are not allowed, overtime is uncapped. Set before [configure]. */
+    var tournament = false
 
     private lateinit var config: MatchConfig
     private var configured = false
@@ -150,6 +152,7 @@ class GameView @JvmOverloads constructor(
             w.controlled[0] = 0
             w.controlled[1] = if (config.mode == GameMode.WIFI_HOST) 0 else -1
             val sim = Simulation(w, AiSettings.forDifficulty(config.aiDifficulty))
+            sim.uncappedOvertime = tournament
             sim.start()
             simulation = sim
         }
@@ -213,6 +216,8 @@ class GameView @JvmOverloads constructor(
             matchOverReported = false
             cancelPendingOver()
         }
+        clutchLatched = false
+        audio { activeTrack = 0 }
         musicCheckTimer = 0f
     }
 
@@ -259,6 +264,8 @@ class GameView @JvmOverloads constructor(
             !gpuCanvasFailed
     @Volatile private var gpuCanvasFailed = false
 
+    private var dbgSim = 0L; private var dbgEv = 0L; private var dbgU = 0L; private var dbgL = 0L; private var dbgR = 0L; private var dbgP = 0L
+
     private fun loop() {
         var lastTime = System.nanoTime()
         var fpsFrames = 0
@@ -267,6 +274,8 @@ class GameView @JvmOverloads constructor(
         var drawNs = 0L
         var lockNs = 0L
         var recordNs = 0L
+        var slowFrames = 0
+        var worstNs = 0L
         while (running) {
             val now = System.nanoTime()
             var dt = (now - lastTime) / 1_000_000_000f
@@ -282,6 +291,11 @@ class GameView @JvmOverloads constructor(
                     "fps=%.1f update=%.1fms draw=%.1fms (lock %.1f, record %.1f, post %.1f; %s canvas)", fps,
                     updateNs / ms, drawNs / ms, lockNs / ms, recordNs / ms, (drawNs - lockNs - recordNs) / ms,
                     if (gpuCanvas) "gpu" else "cpu"))
+                android.util.Log.d("PowerPlay", String.format("hitches: %d frames over 25ms, worst %.1fms",
+                    slowFrames, worstNs / 1e6))
+                slowFrames = 0
+                worstNs = 0L
+                simulation?.let { android.util.Log.d("PowerPlay", it.statsLine()) }
                 fpsFrames = 0
                 fpsWindowStart = now
                 updateNs = 0L
@@ -304,6 +318,7 @@ class GameView @JvmOverloads constructor(
                 val t0 = System.nanoTime()
                 if (!paused) update(w, dt)
                 val t1 = System.nanoTime()
+                dbgU = t1 - t0
                 updateNs += t1 - t0
                 // lockHardwareCanvas() routes through ThreadedRenderer/RenderThread,
                 // which on this device can hit a native (uncatchable) abort when
@@ -323,13 +338,17 @@ class GameView @JvmOverloads constructor(
                     null
                 }
                 val t2 = System.nanoTime()
+                dbgL = t2 - t1
                 if (canvas != null) {
                     try {
                         renderer.hudFrozen = paused
                         synchronized(w) { renderer.draw(canvas, w, localTeam, controls, dt) }
                     } finally {
-                        recordNs += System.nanoTime() - t2
+                        val t3 = System.nanoTime()
+                        recordNs += t3 - t2
+                        dbgR = t3 - t2
                         try { holder.unlockCanvasAndPost(canvas) } catch (_: Exception) {}
+                        dbgP = System.nanoTime() - t3
                     }
                 }
                 lockNs += t2 - t1
@@ -345,7 +364,13 @@ class GameView @JvmOverloads constructor(
                 }
             }
 
-            val frameMs = (System.nanoTime() - now) / 1_000_000L
+            val frameNs = System.nanoTime() - now
+            if (frameNs > 25_000_000L) {
+                slowFrames++
+                android.util.Log.d("PowerPlay", String.format("SLOW frame %.1f: update %.1f lock %.1f record %.1f post %.1f dt=%.1f phase=%s", frameNs / 1e6, dbgU / 1e6, dbgL / 1e6, dbgR / 1e6, dbgP / 1e6, dt * 1000, world?.phase))
+            }
+            if (frameNs > worstNs) worstNs = frameNs
+            val frameMs = frameNs / 1_000_000L
             val sleepMs = max(0L, 16L - frameMs)
             try { Thread.sleep(sleepMs) } catch (_: InterruptedException) {}
         }
@@ -353,12 +378,16 @@ class GameView @JvmOverloads constructor(
 
     private fun update(w: World, dt: Float) {
         controls.snapshotInto(localInput)
+        val ta = System.nanoTime()
         if (config.mode == GameMode.WIFI_CLIENT) {
             updateClient(w, dt)
         } else {
             updateHost(w, dt)
         }
+        val tb = System.nanoTime()
         updateAmbience(w, dt)
+        val tc = System.nanoTime()
+        if (tc - ta > 15_000_000L) android.util.Log.d("PowerPlay", String.format("SLOWUPD host %.1f (sim %.1f ev %.1f) ambience %.1f", (tb - ta) / 1e6, dbgSim / 1e6, dbgEv / 1e6, (tc - tb) / 1e6))
         // Camera follows the puck (leading slightly into its travel).
         val p = w.puck
         val lead = if (p.carrier == null) 0.18f else 0.1f
@@ -375,9 +404,13 @@ class GameView @JvmOverloads constructor(
             }
         } else {
             stepInputs[1] = null
+            val ts = System.nanoTime()
             synchronized(w) { sim.step(dt, stepInputs) }
+            dbgSim = System.nanoTime() - ts
         }
+        val te = System.nanoTime()
         handleEvents(w.events)
+        dbgEv = System.nanoTime() - te
 
         if (config.mode == GameMode.WIFI_HOST) {
             if (cfgResendsLeft > 0) {
@@ -435,23 +468,43 @@ class GameView @JvmOverloads constructor(
         checkMatchOver(w)
     }
 
+    /** In-play music loop for this match, picked once so it does not change mid-game. */
+    private val gameTrack = if (kotlin.random.Random.nextBoolean()) R.raw.music_game else R.raw.music_game_2
+
+    private val lastScores = intArrayOf(0, 0)
+    private var clutchLatched = false
+    private var activeTrack = 0
+
     private fun handleEvents(events: List<GameEvent>) {
         val sm = soundManager
+        val wd = world
+        sm?.localTeam = localTeam
         for (e in events) {
-            sm?.handle(e)
+            val about = when {
+                wd == null -> -1
+                e == GameEvent.GOAL -> when {
+                    wd.teams[0].score > lastScores[0] -> 0
+                    wd.teams[1].score > lastScores[1] -> 1
+                    else -> -1
+                }
+                e == GameEvent.PENALTY -> wd.penaltyTeam
+                else -> -1
+            }
+            sm?.handle(e, about)
             when (e) {
                 GameEvent.GOAL -> {
-                    MusicManager.duck(0.2f, 4000)
+                    audio { MusicManager.duck(0.2f, 4000) }
                     renderer.camera.addShake(0.75f)
                 }
-                GameEvent.PERIOD_END -> MusicManager.duck(0.25f, 3500)
-                GameEvent.GAME_OVER -> MusicManager.stop()
+                GameEvent.PERIOD_END -> audio { MusicManager.duck(0.25f, 3500) }
+                GameEvent.GAME_OVER -> audio { MusicManager.stop() }
                 GameEvent.ONE_TIMER -> renderer.camera.addShake(0.6f)
                 GameEvent.POST -> renderer.camera.addShake(0.45f)
                 GameEvent.HIT -> renderer.camera.addShake(0.35f)
                 else -> {}
             }
         }
+        if (wd != null) { lastScores[0] = wd.teams[0].score; lastScores[1] = wd.teams[1].score }
     }
 
     fun togglePullGoalie(): Boolean {
@@ -482,7 +535,20 @@ class GameView @JvmOverloads constructor(
         musicCheckTimer -= dt
         if (musicCheckTimer <= 0f) {
             musicCheckTimer = 1f
-            if (w.phase != Phase.GAME_OVER) MusicManager.play(context, R.raw.music_game, MusicManager.GAME_VOLUME)
+            if (w.phase == Phase.GAME_OVER) {
+                clutchLatched = false
+                audio { activeTrack = 0 }
+            } else {
+                // Two rotating in-play loops; overtime and a tight last stretch get the faster "clutch" loop.
+                // Clutch latches for the rest of the match, and the swap only happens while the puck is dead.
+                val close = kotlin.math.abs(w.teams[0].score - w.teams[1].score) <= 1
+                val lastStretch = minOf(60f, 0.33f * w.periodLength)
+                if (w.overtime || (w.period >= 3 && w.clock < lastStretch && close)) clutchLatched = true
+                val wanted = if (clutchLatched) R.raw.music_clutch else gameTrack
+                val dead = w.phase != Phase.PLAY
+                // MediaPlayer calls (create/start/setVolume are binder round trips) stay off the game thread.
+                audio { musicStep(wanted, dead) }
+            }
         }
         if (sm != null && w.phase == Phase.PLAY) {
             val s = w.controlledSkater(localTeam)
@@ -500,6 +566,24 @@ class GameView @JvmOverloads constructor(
         }
     }
 
+    /** Runs on the audio thread; [activeTrack] is only touched there (and reset via [audio]). */
+    private fun musicStep(wanted: Int, dead: Boolean) {
+        if (activeTrack == 0 || !MusicManager.isCurrent(activeTrack)) {
+            activeTrack = if (activeTrack == 0) wanted else activeTrack
+            MusicManager.play(context, activeTrack, MusicManager.gameTrackVolume(activeTrack))
+        } else if (wanted != activeTrack && dead) {
+            activeTrack = wanted
+            MusicManager.switchTo(context, wanted, MusicManager.gameTrackVolume(wanted))
+        } else {
+            MusicManager.play(context, activeTrack, MusicManager.gameTrackVolume(activeTrack))
+        }
+    }
+
+    private fun audio(block: () -> Unit) {
+        val sm = soundManager
+        if (sm != null) sm.audio.post(block) else block()
+    }
+
     private fun checkMatchOver(w: World) {
         if (w.phase == Phase.GAME_OVER && !matchOverReported) {
             matchOverReported = true
@@ -510,7 +594,7 @@ class GameView @JvmOverloads constructor(
             val won: Boolean? = if (localScore == otherScore) null else localScore > otherScore
             soundManager?.stopCrowd()
             crowdStarted = false
-            MusicManager.stop()
+            audio { MusicManager.stop() }
             soundManager?.playResult(won)
             // Delay the result dialog so the trophy / confetti finish is visible first.
             val r = Runnable { pendingOver = null; listener?.onMatchOver(home, away, won) }

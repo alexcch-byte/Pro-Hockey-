@@ -34,6 +34,8 @@ class TouchControls(private val density: Float) {
     private var dekePointer = -1
     private var dekeTapReadyAt = 0L
     @Volatile var dekeEnabled = true
+    /** True while the controlled skater has the puck; the stick-flick auto-deke only fires then. */
+    @Volatile var carrying = false
     @Volatile var shootDown = false
     @Volatile var passDown = false
     @Volatile var hitDown = false
@@ -201,14 +203,15 @@ class TouchControls(private val density: Float) {
         if (dtMs in 25..220) {
             val prevMag = hypot(prevJoyMx, prevJoyMy)
             val curMag = hypot(mx, my)
-            if (curMag > 0.42f && now > dekeCooldownUntil) {
+            if (carrying && dekeEnabled && curMag > 0.7f && now > dekeCooldownUntil) {
                 val deltaDist = hypot(mx - prevJoyMx, my - prevJoyMy)
                 val stickSpeed = deltaDist / (dtMs / 1000f)
                 val dot = if (prevMag > 0.28f && curMag > 0.28f) {
                     (mx * prevJoyMx + my * prevJoyMy) / (curMag * prevMag)
                 } else 1f
-                val isSharpCut = (dot < 0.2f && prevMag > 0.38f && dtMs <= 180)
-                val isFastFlick = (stickSpeed > 7.5f && curMag > 0.5f)
+                // Deliberate full-throw reversal or a very fast flick only; ordinary thumb corrections stay normal moves.
+                val isSharpCut = (dot < -0.35f && prevMag > 0.6f && dtMs <= 150)
+                val isFastFlick = (stickSpeed > 11f && curMag > 0.75f)
                 if (isSharpCut || isFastFlick) {
                     synchronized(lock) { input.deke = true }
                     dekeCooldownUntil = now + 500L

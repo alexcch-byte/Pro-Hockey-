@@ -47,6 +47,10 @@ class Skater(val team: Int, val index: Int, val role: Role, val number: Int) {
     var aiTargetX = 0f
     var aiTargetY = 0f
     var aiChaser = false
+    /** Seconds before this carrier may roll another seam-pass look. */
+    var seamCooldown = 0f
+    /** Index of the opposing skater this defender is covering man-to-man, or -1. */
+    var markId = -1
 
     // Goalie active save moves
     var butterfly = false
@@ -81,7 +85,7 @@ class Skater(val team: Int, val index: Int, val role: Role, val number: Int) {
         facing = face
         stunTimer = 0f; pokeTimer = 0f; checkTimer = 0f; dekeTimer = 0f
         actionCooldown = 0f; pickupCooldown = 0f; swingTimer = 0f
-        aiTimer = 0f; aiTargetX = px; aiTargetY = py; aiChaser = false
+        aiTimer = 0f; aiTargetX = px; aiTargetY = py; aiChaser = false; seamCooldown = 0f; markId = -1
         butterfly = false; goalieAction = GoalieAction.NONE; goalieActionTimer = 0f
         netX = px; netY = py; netFacing = face
     }

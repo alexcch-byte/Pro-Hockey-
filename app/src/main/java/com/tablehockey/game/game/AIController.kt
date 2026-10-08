@@ -16,7 +16,16 @@ import kotlin.random.Random
  */
 class AIController(private val ai: AiSettings, private val rng: Random) {
 
+    private class Pt { var x = 0f; var y = 0f }
+    private val leadPuck = Pt()
+
     private enum class Situation { OWN, OPP, LOOSE }
+
+    private companion object {
+        const val MARK_GOALSIDE_FT = 3f
+        const val NET_CRASH_FT = 20f
+        const val HANG_ZONE_FT = 55f
+    }
 
     // ---------------------------------------------------------------- skaters
 
@@ -52,10 +61,13 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
         when (situation) {
             Situation.OWN -> {
                 if (carrier === s) {
+                    s.markId = -1
                     carrierBehaviour(world, team, s, sim)
+                } else if (guardHanger(world, team, s, puck)) {
+                    // One defenceman stays home on an opponent loitering near our net.
                 } else {
                     val ax = team.toAttackX(puck.x)
-                    val (tx, ty) = offensiveSpot(s.role, ax, puck.y)
+                    val (tx, ty) = offensiveSpot(s.role, ax, puck.y, world.penaltyTeam == world.opponent(team.id).id)
                     setTarget(team, s, tx, ty)
                 }
             }
@@ -64,6 +76,7 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
                 val chaser = pickChaser(team, c.x + c.vx * 0.2f, c.y + c.vy * 0.2f, humanIdx)
                 if (chaser === s) {
                     s.aiChaser = true
+                    s.markId = -1
                     setWorldTarget(s, c.x + c.vx * 0.25f, c.y + c.vy * 0.25f)
                     val d = s.distanceTo(c.x, c.y)
                     if (d < 6.5f && s.actionCooldown <= 0f) {
@@ -74,8 +87,12 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
                 } else {
                     s.aiChaser = false
                     val cax = team.toAttackX(c.x)
-                    val (tx, ty) = defensiveSpot(s.role, cax, c.y)
-                    setTarget(team, s, tx, ty)
+                    // Penalty kill: a man down, stay in the zone formation (box) instead of chasing marks.
+                    if (world.penaltyTeam == team.id || !assignMark(world, team, s, c)) {
+                        s.markId = -1
+                        val (tx, ty) = defensiveSpot(s.role, cax, c.y)
+                        setTarget(team, s, tx, ty)
+                    }
                 }
             }
             Situation.LOOSE -> {
@@ -84,14 +101,17 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
                 }
                 val px = (puck.x + puck.vx * 0.35f).coerceIn(-97f, 97f)
                 val py = (puck.y + puck.vy * 0.35f).coerceIn(-40f, 40f)
-                val chasers = pickChasers(team, px, py, humanIdx, 2)
-                if (chasers.contains(s)) {
+                pickChasers(team, px, py, humanIdx, team.toAttackX(px) > Rink.GOAL_LINE_X - NET_CRASH_FT)
+                if (s === chaserA || s === chaserB) {
                     s.aiChaser = true
+                    s.markId = -1
                     setWorldTarget(s, px, py)
                 } else {
                     s.aiChaser = false
-                    val (tx, ty) = offensiveSpot(s.role, team.toAttackX(px), py)
-                    setTarget(team, s, tx, ty)
+                    if (!guardHanger(world, team, s, puck)) {
+                        val (tx, ty) = offensiveSpot(s.role, team.toAttackX(px), py, world.penaltyTeam == world.opponent(team.id).id)
+                        setTarget(team, s, tx, ty)
+                    }
                 }
             }
         }
@@ -124,16 +144,141 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
         return best
     }
 
-    private fun pickChasers(team: Team, x: Float, y: Float, humanIdx: Int, count: Int): List<Skater> {
-        return team.skaters
-            .filter { !it.isGoalie && it.index != humanIdx && it.stunTimer <= 0f }
-            .sortedBy { it.distanceTo(x, y) - (if (it.aiChaser) 3.5f else 0f) }
-            .take(count)
+    private var chaserA: Skater? = null
+    private var chaserB: Skater? = null
+
+    /**
+     * Fills [chaserA]/[chaserB] with the two best loose-puck chasers (no allocation).
+     * Near the opposing net ([netCrash]) the first chaser is the nearest forward and
+     * defencemen are penalised for the second, so one D stays back.
+     */
+    private fun pickChasers(team: Team, x: Float, y: Float, humanIdx: Int, netCrash: Boolean) {
+        var a: Skater? = null
+        var aD = Float.MAX_VALUE
+        if (netCrash) {
+            for (s in team.skaters) {
+                if (s.isGoalie || s.role == Role.LD || s.role == Role.RD || s.index == humanIdx || s.stunTimer > 0f) continue
+                val d = s.distanceTo(x, y) - (if (s.aiChaser) 3.5f else 0f)
+                if (d < aD) { aD = d; a = s }
+            }
+        }
+        var b: Skater? = null
+        var bD = Float.MAX_VALUE
+        val aFixed = a != null // net-crash forward already chosen as A
+        for (s in team.skaters) {
+            if (s === a && aFixed) continue
+            if (s.isGoalie || s.index == humanIdx || s.stunTimer > 0f) continue
+            var d = s.distanceTo(x, y) - (if (s.aiChaser) 3.5f else 0f)
+            if (netCrash && (s.role == Role.LD || s.role == Role.RD)) d += 12f
+            if (aFixed) {
+                if (d < bD) { bD = d; b = s }
+            } else if (a == null || d < aD) {
+                b = a; bD = aD; a = s; aD = d
+            } else if (d < bD) { bD = d; b = s }
+        }
+        chaserA = a
+        chaserB = b
+    }
+
+    /**
+     * Man-to-man: marks the nearest unmarked attacker inside our defensive zone and heads for
+     * a point [MARK_GOALSIDE_FT] goal-side of him. Defencemen weight slot attackers first.
+     * Returns false when there is nobody to cover (caller falls back to zone spots).
+     */
+    private fun assignMark(world: World, team: Team, s: Skater, carrier: Skater): Boolean {
+        val opp = world.opponent(team.id)
+        var best: Skater? = null
+        var bestScore = Float.MAX_VALUE
+        val isD = s.role == Role.LD || s.role == Role.RD
+        for (o in opp.skaters) {
+            if (o.isGoalie || o === carrier || o.inPenaltyBox || o.stunTimer > 0f) continue
+            val oax = team.toAttackX(o.x)
+            if (oax > -Rink.BLUE_LINE_X) continue // only attackers already in (or entering) our zone
+            // Claimed by a teammate who is still covering him?
+            var taken = false
+            for (t in team.skaters) {
+                if (t === s || t.isGoalie || t.aiChaser || t.inPenaltyBox || t.stunTimer > 0f) continue
+                if (t.index == world.controlled[team.id] && world.isHuman(team.id)) continue
+                if (t.markId == o.index) { taken = true; break }
+            }
+            if (taken) continue
+            val inSlot = oax < -50f && abs(o.y) < 13f
+            var score = s.distanceTo(o.x, o.y)
+            if (inSlot) score += if (isD) -10f else 10f
+            if (s.markId == o.index) score -= 6f // stickiness
+            if (score < bestScore) { bestScore = score; best = o }
+        }
+        val m = best ?: return false
+        s.markId = m.index
+        val gx = team.ownGoalX
+        val dx = gx - m.x
+        val dy = -m.y
+        val d = hypot(dx, dy).coerceAtLeast(0.01f)
+        setWorldTarget(s, m.x + dx / d * MARK_GOALSIDE_FT, m.y + dy / d * MARK_GOALSIDE_FT)
+        return true
+    }
+
+    /**
+     * Anti goal-hanging: while we have (or are chasing) the puck, the defenceman nearest to an
+     * opposing skater loitering deep in our zone (and well behind the puck) stays goal-side of him.
+     * Only one defenceman does this, so the attack keeps its numbers. Returns true if [s] took the job.
+     */
+    private fun guardHanger(world: World, team: Team, s: Skater, puck: Puck): Boolean {
+        // s.markId >= 0 on entry means s was already guarding last tick (hysteresis); it is cleared on failure.
+        val wasGuarding = s.markId >= 0
+        if (guardHangerInner(world, team, s, puck, wasGuarding)) return true
+        s.markId = -1
+        return false
+    }
+
+    private fun guardHangerInner(world: World, team: Team, s: Skater, puck: Puck, wasGuarding: Boolean): Boolean {
+        if (s.role != Role.LD && s.role != Role.RD) return false
+        if (s.inPenaltyBox || s.stunTimer > 0f) return false
+        val pax = team.toAttackX(puck.x)
+        if (pax < -Rink.BLUE_LINE_X) return false // puck is back in our zone anyway; normal defence applies
+        val opp = world.opponent(team.id)
+        val limit = if (wasGuarding) -(HANG_ZONE_FT - 7f) else -HANG_ZONE_FT // enter at -55, leave at -48
+        var hanger: Skater? = null
+        var hx = 0f
+        for (o in opp.skaters) {
+            if (o.isGoalie || o.inPenaltyBox) continue
+            val oax = team.toAttackX(o.x)
+            if (oax > limit) continue
+            if (hanger == null || oax < hx) { hanger = o; hx = oax }
+        }
+        val h = hanger ?: return false
+        // Only defencemen who could actually take the job compete: not the carrier, a loose-puck chaser,
+        // a stunned/boxed D, or the human-controlled skater.
+        val humanTeam = world.isHuman(team.id)
+        val carrier = puck.carrier
+        for (t in team.skaters) {
+            if (t === s || t.isGoalie || (t.role != Role.LD && t.role != Role.RD)) continue
+            if (t.inPenaltyBox || t.stunTimer > 0f || t.aiChaser || t === carrier) continue
+            if (humanTeam && t.index == world.controlled[team.id]) continue
+            if (t.distanceTo(h.x, h.y) < s.distanceTo(h.x, h.y)) return false
+        }
+        s.markId = h.index
+        val dx = team.ownGoalX - h.x
+        val dy = -h.y
+        val d = hypot(dx, dy).coerceAtLeast(0.01f)
+        setWorldTarget(s, h.x + dx / d * MARK_GOALSIDE_FT, h.y + dy / d * MARK_GOALSIDE_FT)
+        return true
     }
 
     /** Attack-frame spot for a supporting skater while the team has (or is chasing) the puck. */
-    private fun offensiveSpot(role: Role, pax: Float, pay: Float): Pair<Float, Float> {
+    private fun offensiveSpot(role: Role, pax: Float, pay: Float, powerPlay: Boolean = false): Pair<Float, Float> {
         val inZone = pax > Rink.BLUE_LINE_X
+        // Power play umbrella: D on the points, wings at the circles, centre in the slot.
+        if (powerPlay && inZone) {
+            return when (role) {
+                Role.C -> 60f to 0f
+                Role.LW -> 68f to -22f
+                Role.RW -> 68f to 22f
+                Role.LD -> 40f to -24f
+                Role.RD -> 40f to 24f
+                Role.G -> 0f to 0f
+            }
+        }
         return when (role) {
             Role.C -> if (inZone) (56f to -pay * 0.4f) else ((pax + 6f) to pay * 0.3f)
             Role.LW -> if (inZone) (74f to -13f) else (min(pax + 12f, 23f) to -24f)
@@ -183,11 +328,35 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
         val angleQuality = 1f - (abs(say) / 40f).coerceIn(0f, 1f)
         if (dist < 44f && sax < Rink.GOAL_LINE_X - 2f) {
             val closeness = 1f - dist / 44f
-            val p = ai.shootTendency * (0.2f + 0.8f * closeness) * (0.45f + 0.55f * angleQuality)
+            var p = ai.shootTendency * (0.2f + 0.8f * closeness) * (0.45f + 0.55f * angleQuality)
+            if (world.penaltyTeam == world.opponent(team.id).id) p *= 1.3f  // power play: shoot more
             if (rng.nextFloat() < p) {
                 val corner = (1.4f + rng.nextFloat() * 1.2f) * (if (rng.nextBoolean()) 1f else -1f)
                 sim.shoot(s, 0.55f + rng.nextFloat() * 0.45f, corner, ai.shotAccuracy)
                 return
+            }
+        }
+
+        // Seam pass: in the offensive zone, move the puck to an open teammate in a clearly better shooting spot.
+        if (sax > Rink.BLUE_LINE_X && s.seamCooldown <= 0f) {
+            s.seamCooldown = 0.6f
+            if (rng.nextFloat() < ai.seamPass) {
+            val ownQ = shotQuality(sax, say)
+            if (ownQ < 0.5f) {
+                var target: Skater? = null
+                var bestQ = ownQ + 0.2f
+                for (m in team.skaters) {
+                    if (m === s || m.isGoalie || m.stunTimer > 0f || m.inPenaltyBox) continue
+                    val q = shotQuality(team.toAttackX(m.x), m.y)
+                    if (q <= bestQ) continue
+                    var open = true
+                    for (o in opp.skaters) {
+                        if (!o.isGoalie && o.distanceTo(m.x, m.y) < 5f) { open = false; break }
+                    }
+                    if (open) { bestQ = q; target = m }
+                }
+                if (target != null && sim.passTo(s, target, ai.passAccuracy, human = false, checkLane = true)) return
+            }
             }
         }
 
@@ -211,13 +380,24 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
         setTarget(team, s, tx, ty)
     }
 
+    /** 0..1 scoring chance from an attack-frame spot: closer to the net and nearer the slot is better. */
+    private fun shotQuality(ax: Float, ay: Float): Float {
+        val dist = hypot(Rink.GOAL_LINE_X - ax, ay)
+        val closeness = (1f - dist / 44f).coerceIn(0f, 1f)
+        val angle = 1f - (abs(ay) / 40f).coerceIn(0f, 1f)
+        return closeness * (0.45f + 0.55f * angle)
+    }
+
     // ---------------------------------------------------------------- goalies
 
-    fun updateGoalie(world: World, team: Team, g: Skater, skill: Float, padScale: Float, dt: Float) {
+    fun updateGoalie(world: World, team: Team, g: Skater, skill: Float, padScale: Float, leadSeconds: Float, dt: Float) {
         g.padScale = padScale
-        val puck = world.puck
+        val realPuck = world.puck
         val a = team.attackDir
         val gx = team.ownGoalX
+        // Anticipate a puck in flight (shot or cross-ice pass) by leading it along its velocity.
+        val lead = if (realPuck.carrier == null) leadSeconds * ((realPuck.speed - 15f) / 20f).coerceIn(0f, 1f) else 0f
+        val puck = leadPuck.also { it.x = realPuck.x + realPuck.vx * lead; it.y = realPuck.y + realPuck.vy * lead }
         val depthOfPuck = a * (puck.x - gx)
         val tx: Float
         val ty: Float
@@ -252,8 +432,8 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
         // Goalies square up to the puck rather than facing where they skate.
         val want = atan2(puck.y - g.y, puck.x - g.x)
         g.facing = PhysicsEngine.turnToward(g.facing, want, dt * 12f)
-        val pd = hypot(puck.x - g.x, puck.y - g.y)
-        val carrier = puck.carrier
-        g.butterfly = pd < 18f && (puck.shot || puck.speed > 30f || (carrier != null && carrier.team != team.id && pd < 12f))
+        val pd = hypot(realPuck.x - g.x, realPuck.y - g.y)
+        val carrier = realPuck.carrier
+        g.butterfly = pd < 18f && (realPuck.shot || realPuck.speed > 30f || (carrier != null && carrier.team != team.id && pd < 12f))
     }
 }

@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.AudioAttributes
 import android.media.SoundPool
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import com.tablehockey.game.R
 import com.tablehockey.game.model.ArenaType
@@ -39,12 +40,20 @@ class SoundManager(context: Context) {
     var volume: Float = 1f
         set(value) {
             field = value.coerceIn(0f, 1f)
-            if (field <= 0f) stopLoops()
+            if (field <= 0f) audio.post { stopLoops() }
         }
 
     val enabled: Boolean get() = volume > 0f
 
     private val app = context.applicationContext
+
+    /**
+     * Every SoundPool / MediaPlayer call goes through this thread. SoundPool.play, setVolume and setRate
+     * take a lock that the audio mixer can hold for 20-90 ms on the Fire tablets; made from the game
+     * thread they showed up as the 20-140 ms "update" hitches in play (see docs/perf_log.md, cycle 2).
+     */
+    private val audioThread = HandlerThread("SfxThread").also { it.start() }
+    val audio = Handler(audioThread.looper)
     private val pool: SoundPool = SoundPool.Builder()
         .setMaxStreams(20)
         .setAudioAttributes(
@@ -99,6 +108,7 @@ class SoundManager(context: Context) {
     private val clickId = load(R.raw.button_click)
     private val oneTimerId = load(R.raw.one_timer)
     private val gaspId = load(R.raw.gasp)
+    private val booId = load(R.raw.boo)
     private val penaltyId = load(R.raw.penalty)
     private val fireId = load(R.raw.fire)
     private val dekeId = load(R.raw.deke)
@@ -110,8 +120,6 @@ class SoundManager(context: Context) {
     private val roarId = load(R.raw.crowd_roar)
     private val windId = load(R.raw.wind_loop)
 
-    private val handler = Handler(Looper.getMainLooper())
-
     // Listener state, refreshed every frame by updateMix().
     @Volatile private var pan = 0f              // where the puck is, -1 left .. 1 right
     @Volatile private var puckSpeed = 0f
@@ -121,13 +129,13 @@ class SoundManager(context: Context) {
     private var lastShotPower = 0.5f
 
     // Crowd excitement, 0 calm .. 1 bedlam. Events add to `boost`, which decays.
-    private var excitement = 0f
+    @Volatile private var excitement = 0f
     private var boost = 0f
     private var goalHold = 0f
     private var mixTimer = 0f
 
     // Ambience loops; guarded by `this` because pause/volume changes come from the UI thread.
-    private var ambienceWanted = false
+    @Volatile private var ambienceWanted = false
     private var loopsOutdoor = false
     private var murmurStream = 0
     private var roarStream = 0
@@ -143,11 +151,12 @@ class SoundManager(context: Context) {
     private fun play(id: Int, level: Float, rate: Float = 1f, priority: Int = 0, pan: Float = 0f) {
         if (!enabled) return
         val (l, r) = gains(level, pan)
-        pool.play(id, l, r, priority, 0, rate.coerceIn(0.5f, 2f))
+        val rt = rate.coerceIn(0.5f, 2f)
+        audio.post { pool.play(id, l, r, priority, 0, rt) }
     }
 
     private fun later(delayMs: Long, block: () -> Unit) {
-        handler.postDelayed({ if (enabled) block() }, delayMs)
+        audio.postDelayed({ if (enabled) block() }, delayMs)
     }
 
     private fun jitter(amount: Float) = 1f + (rng.nextFloat() * 2f - 1f) * amount
@@ -164,7 +173,14 @@ class SoundManager(context: Context) {
         boost = min(1.2f, boost + amount)
     }
 
-    fun handle(event: GameEvent) {
+    /** Team index (0/1) the local player controls; set by the view so the crowd can pick sides. */
+    @Volatile
+    var localTeam = -1
+
+    /**
+     * [team] is the team the event is about when known (scorer for GOAL, offender for PENALTY), else -1.
+     */
+    fun handle(event: GameEvent, team: Int = -1) {
         if (!enabled) return
         val pan = this.pan
         when (event) {
@@ -218,9 +234,20 @@ class SoundManager(context: Context) {
             GameEvent.PENALTY -> {
                 play(penaltyId, 1f, 1f, 2)
                 bump(0.2f)
+                when {
+                    team < 0 || localTeam < 0 -> later(450) { play(booId, if (outdoor) 0.3f else 0.75f, jitter(0.03f), 1) }
+                    team == localTeam -> later(450) { play(booId, if (outdoor) 0.3f else 0.75f, jitter(0.03f), 1) }   // own penalty
+                    else -> later(450) { play(cheerId, if (outdoor) 0.15f else 0.4f, jitter(0.03f), 1) }              // power play
+                }
             }
             GameEvent.HORN -> play(hornId, 1f, 1f, 2)
-            GameEvent.GOAL -> {
+            GameEvent.GOAL -> if (team >= 0 && localTeam >= 0 && team != localTeam) {
+                // Goal against: visiting fans only, and the home crowd groans; no goal jingle.
+                play(cheerId, if (outdoor) 0.15f else 0.3f, 1f, 2)
+                goalHold = 2.0f
+                bump(0.5f)
+                later(250) { play(booId, if (outdoor) 0.35f else 0.8f, 0.93f * jitter(0.02f), 1) }
+            } else {
                 play(cheerId, if (outdoor) 0.45f else 1f, 1f, 2)
                 goalHold = 3.5f
                 bump(1f)
@@ -244,6 +271,9 @@ class SoundManager(context: Context) {
                 bump(0.6f)
             }
             GameEvent.GOALIE_SAVE_MOVE -> play(padStackId, 0.9f, jitter(0.06f), 2, pan)
+            GameEvent.ICING -> {   // the whistle itself comes from the WHISTLE event sent with it
+                bump(0.1f)
+            }
         }
     }
 
@@ -287,9 +317,12 @@ class SoundManager(context: Context) {
         mixTimer -= dt
         if (mixTimer <= 0f) {
             mixTimer = 0.05f
-            applyLoops()
+            if (!applyQueued) { applyQueued = true; audio.post(applyRunnable) }
         }
     }
+
+    @Volatile private var applyQueued = false
+    private val applyRunnable = Runnable { applyQueued = false; applyLoops() }
 
     /** Starts, stops, swaps and levels the ambience loops to match the arena and the crowd's mood. */
     @Synchronized
@@ -351,16 +384,14 @@ class SoundManager(context: Context) {
     }
 
     /** Asks for the crowd (or pond wind); it starts as soon as its samples have loaded. */
-    @Synchronized
     fun startCrowd() {
         ambienceWanted = true
-        applyLoops()
+        audio.post { applyLoops() }
     }
 
-    @Synchronized
     fun stopCrowd() {
         ambienceWanted = false
-        stopLoops()
+        audio.post { stopLoops() }
         excitement = 0f
         boost = 0f
         goalHold = 0f
@@ -369,9 +400,13 @@ class SoundManager(context: Context) {
     fun playClick() = play(clickId, 0.6f)
 
     fun release() {
-        handler.removeCallbacksAndMessages(null)
-        stopCrowd()
-        pool.release()
+        ambienceWanted = false
+        audio.removeCallbacksAndMessages(null)
+        audio.post {
+            stopLoops()
+            pool.release()
+            audioThread.quitSafely()
+        }
     }
 
     private companion object {

@@ -225,6 +225,7 @@ class Renderer(private val density: Float) {
     // ----- upright character sprites (see CharacterArt); built lazily per facing and pose
     private var charArt: CharacterArt? = null
     private var charArtScale = 0f
+    private var warmedScale = 0f
     private val skaterSpr = arrayOf(
         arrayOfNulls<Bitmap>(CharacterArt.FACINGS * CharacterArt.FRAMES),
         arrayOfNulls<Bitmap>(CharacterArt.FACINGS * CharacterArt.FRAMES)
@@ -475,16 +476,60 @@ class Renderer(private val density: Float) {
     }
 
     private fun clearSprites() {
-        for (a in skaterSpr) for (i in a.indices) { a[i]?.recycle(); a[i] = null }
-        for (a in goalieSpr) for (i in a.indices) { a[i]?.recycle(); a[i] = null }
-        for (i in refSpr.indices) { refSpr[i]?.recycle(); refSpr[i] = null }
-        spriteInfo[0] = null
-        spriteInfo[1] = null
+        synchronized(spriteLock) {
+            warmGen++
+            for (a in skaterSpr) for (i in a.indices) { a[i]?.recycle(); a[i] = null }
+            for (a in goalieSpr) for (i in a.indices) { a[i]?.recycle(); a[i] = null }
+            for (i in refSpr.indices) { refSpr[i]?.recycle(); refSpr[i] = null }
+            spriteInfo[0] = null
+            spriteInfo[1] = null
+        }
     }
 
     private fun clearTeamSprites(t: Int) {
-        for (i in skaterSpr[t].indices) { skaterSpr[t][i]?.recycle(); skaterSpr[t][i] = null }
-        for (i in goalieSpr[t].indices) { goalieSpr[t][i]?.recycle(); goalieSpr[t][i] = null }
+        synchronized(spriteLock) {
+            warmGen++
+            for (i in skaterSpr[t].indices) { skaterSpr[t][i]?.recycle(); skaterSpr[t][i] = null }
+            for (i in goalieSpr[t].indices) { goalieSpr[t][i]?.recycle(); goalieSpr[t][i] = null }
+        }
+    }
+
+    // Sprite pre-warm: building one sprite (about 60 vector draws, two gradients and a bitmap copy)
+    // costs several ms on a Fire tablet, and used to happen on the game thread the first time each
+    // facing/stride pose was seen, i.e. a run of dropped frames early in every match. A low-priority
+    // thread with its own CharacterArt fills the common poses instead; the lazy path in drawSkater
+    // still covers anything not warmed yet.
+    private val spriteLock = Any()
+    @Volatile private var warmGen = 0
+
+    private fun startSpriteWarm(world: World, scale: Float) {
+        val gen: Int
+        synchronized(spriteLock) { gen = ++warmGen }
+        val infos = arrayOf(world.teams[0].info, world.teams[1].info)
+        val t = Thread({
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
+            try {
+                val art = CharacterArt(scale)
+                val nf = CharacterArt.FACINGS
+                fun put(arr: Array<Bitmap?>, idx: Int, make: () -> Bitmap) {
+                    if (warmGen != gen || arr[idx] != null) return
+                    val bmp = make()
+                    synchronized(spriteLock) {
+                        if (warmGen == gen && arr[idx] == null) arr[idx] = bmp else bmp.recycle()
+                    }
+                }
+                for (frame in 0 until CharacterArt.STRIDE_FRAMES) for (f in 0 until nf) for (tm in 0..1) {
+                    put(skaterSpr[tm], frame * nf + f) { art.skater(infos[tm], f, frame, false) }
+                }
+                for (stance in 0..1) for (f in 0 until nf) for (tm in 0..1) {
+                    put(goalieSpr[tm], stance * nf + f) { art.goalie(infos[tm], f, stance) }
+                }
+            } catch (_: Throwable) {
+                // Warming is only an optimisation; the lazy path still works.
+            }
+        }, "SpriteWarm")
+        t.isDaemon = true
+        t.start()
     }
 
     /** Rebuilds sprites, stands, walls and the baked rink when the zoom, teams or arena change. */
@@ -495,11 +540,18 @@ class Renderer(private val density: Float) {
             charArt = CharacterArt(rScale)
             charArtScale = rScale
         }
+        var warm = false
+        if (charArtScale == rScale && warmedScale != rScale) warm = true
         for (t in 0..1) {
             if (spriteInfo[t] !== world.teams[t].info) {
                 clearTeamSprites(t)
                 spriteInfo[t] = world.teams[t].info
+                warm = true
             }
+        }
+        if (warm) {
+            warmedScale = rScale
+            startSpriteWarm(world, rScale)
         }
         val h = world.teams[0].info.primary
         val a = world.teams[1].info.primary
@@ -584,8 +636,7 @@ class Renderer(private val density: Float) {
                 art.drawWarped(canvas, camera, it, crowdRect.left, crowdRect.top, crowdRect.right, crowdRect.bottom, 1, meshPaint)
             }
         } else {
-            art.drawStands(canvas, camera)
-            art.drawFlashes(canvas)
+            art.drawStands(canvas, camera); art.drawFlashes(canvas)
         }
         rinkBake?.let {
             art.drawWarped(canvas, camera, it, bakeRect.left, bakeRect.top, bakeRect.right, bakeRect.bottom, 0, meshPaint)
