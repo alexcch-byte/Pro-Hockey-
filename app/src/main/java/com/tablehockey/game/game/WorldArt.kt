@@ -702,7 +702,7 @@ class WorldArt {
             }
             rakeBatch.draw(canvas, sidePaint)
         }
-        var bottom = cam.py(-Rink.HALF_W) - wallH * cam.ppf(-Rink.HALF_W) + 2f
+        var bottom = cam.py(-Rink.HALF_W) - 4.2f * cam.ppf(-Rink.HALF_W)
         for (l in layers) {
             val bmp = l.bmp ?: continue
             val f = cam.depth(l.yb)

@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.LinearGradient
 import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
@@ -233,6 +234,7 @@ class Renderer(private val density: Float) {
     private val spritePaint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
     private val spriteDst = RectF()
     private val meshPaint = Paint(Paint.FILTER_BITMAP_FLAG)
+    private val skyPaint = Paint()
     private val numberStr = Array(100) { it.toString() }
 
     // ----- baked top-down rink (ice, markings, creases, nets), warped through the camera each frame
@@ -520,6 +522,11 @@ class Renderer(private val density: Float) {
         val isPond = world.arenaType == ArenaType.WINTER_POND
         canvas.drawColor(if (isPond) Color.parseColor("#09101C") else Color.parseColor("#05080F"))
         if (isPond) {
+            val horizon = camera.py(-Camera.WORLD_HALF_H) + 2f
+            if (horizon > 0f) {
+                skyPaint.shader = LinearGradient(0f, 0f, 0f, horizon, Color.parseColor("#070C18"), Color.parseColor("#4A6A8C"), Shader.TileMode.CLAMP)
+                canvas.drawRect(0f, 0f, camera.screenW.toFloat(), horizon, skyPaint)
+            }
             winterLandscape?.let {
                 art.drawWarped(canvas, camera, it, crowdRect.left, crowdRect.top, crowdRect.right, crowdRect.bottom, 1, meshPaint)
             }
