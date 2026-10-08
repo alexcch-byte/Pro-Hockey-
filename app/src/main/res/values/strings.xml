@@ -8,6 +8,18 @@
     <string name="menu_wifi_2p">Multiplayer</string>
     <string name="menu_how_to_play">How to Play</string>
     <string name="menu_exit">Exit</string>
+    <string name="menu_customise">Customise Team</string>
+    <string name="menu_hockey">HOCKEY</string>
+    <string name="menu_your_club">Your club: %1$s</string>
+    <string name="menu_title_top">POWER PLAY</string>
+    <string name="customise_title">Customise Team</string>
+    <string name="customise_tab_uniform">Uniform</string>
+    <string name="customise_tab_logo">Logo</string>
+    <string name="customise_cancel">Cancel</string>
+    <string name="customise_confirm">Confirm</string>
+    <string name="customise_reset">Stock kit</string>
+    <string name="customise_fav">Make my club</string>
+    <string name="customise_fav_on">My club</string>
     <string name="menu_tagline">5-on-5 arcade ice hockey. Three periods. One winner.</string>
 
     <string name="settings_title">Match Setup</string>

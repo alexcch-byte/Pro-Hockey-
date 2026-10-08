@@ -14,9 +14,23 @@ data class TeamInfo(
     val primary: Int,
     val secondary: Int,
     val text: Int,
-    val league: String = LEAGUE_PRO
+    val league: String = LEAGUE_PRO,
+    /** Extra cosmetics from the Customise Team screen; null for stock clubs. */
+    val style: TeamStyle? = null
 ) : Serializable {
     val fullName: String get() = if (city.isEmpty()) name else "$city $name"
+
+    // ---- Read-only kit API for renderers (never null; stock clubs fall back to their colours).
+    // `primary` / `secondary` already carry the customised colours. Everything below is extra.
+    // TeamInfo instances are created once per match by byIndex(); compare by identity (!==), not ==.
+    /** Full uniform description (pattern, trim, helmet, socks, crest colours). */
+    val look: TeamStyle get() = style ?: TeamStyle.defaultFor(this)
+    val trimColor: Int get() = look.trim
+    val helmetColor: Int get() = look.helmet
+    val sockColor: Int get() = look.sock
+    val jerseyPattern: JerseyPattern get() = look.pattern
+    val crestType: CrestType get() = look.crest
+    val hasCustomKit: Boolean get() = style != null
 
     companion object {
         const val LEAGUE_PRO = "Pro League"
@@ -60,7 +74,7 @@ data class TeamInfo(
             TeamInfo("Toronto", "Pilots", "TOR", Color.parseColor("#1E3A8A"), Color.parseColor("#93C5FD"), Color.WHITE)
         )
 
-        fun byIndex(i: Int): TeamInfo = ALL[i.coerceIn(0, ALL.size - 1)]
+        fun byIndex(i: Int): TeamInfo = TeamStyleStore.apply(ALL[i.coerceIn(0, ALL.size - 1)])
 
         /** Index of the default home club (Glenlake Hawks). */
         val DEFAULT_HOME: Int = ALL.indexOfFirst { it.city == "Glenlake" }.coerceAtLeast(0)
