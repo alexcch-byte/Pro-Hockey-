@@ -26,7 +26,7 @@ import kotlin.math.sin
  * that depth) / [pxPerFt]. Nothing here is called per frame except the cheap number
  * placement helpers.
  */
-class CharacterArt(private val pxPerFt: Float) {
+class CharacterArt(val pxPerFt: Float) {
 
     companion object {
         const val FACINGS = 16

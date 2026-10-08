@@ -45,7 +45,7 @@ class Camera {
         screenW = max(1, w)
         screenH = max(1, h)
         scale = screenW / VISIBLE_WIDTH_FT
-        anchorY = screenH * 0.58f
+        anchorY = screenH * 0.66f
     }
 
     var shakeTrauma = 0f

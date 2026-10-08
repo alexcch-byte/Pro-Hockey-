@@ -1,6 +1,7 @@
 package com.tablehockey.game.game
 
 import android.graphics.Bitmap
+import android.graphics.BitmapShader
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.DashPathEffect
@@ -10,11 +11,13 @@ import android.graphics.Path
 import android.graphics.RadialGradient
 import android.graphics.RectF
 import android.graphics.Shader
+import android.graphics.Typeface
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.exp
 import kotlin.math.hypot
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -34,7 +37,7 @@ class WorldArt {
 
     companion object {
         private const val ICE_PX = 4f
-        private const val CROWD_PX = 6f
+        private const val STAND_PX = 6f
     }
 
     private val tmpRect = RectF()
@@ -185,99 +188,236 @@ class WorldArt {
         canvas.drawArc(tmpRect, 180f, 180f, false, markPaint)
     }
 
-    // ------------------------------------------------------------------ boards & glass
 
-    private val adPath = Path().apply {
-        addRoundRect(RectF(-Rink.HALF_L - 1.1f, -Rink.HALF_W - 1.1f, Rink.HALF_L + 1.1f, Rink.HALF_W + 1.1f), Rink.CORNER_R + 1.1f, Rink.CORNER_R + 1.1f, Path.Direction.CW)
-    }
-    private val glassPath = Path().apply {
-        addRoundRect(RectF(-Rink.HALF_L - 2.5f, -Rink.HALF_W - 2.5f, Rink.HALF_L + 2.5f, Rink.HALF_W + 2.5f), Rink.CORNER_R + 2.5f, Rink.CORNER_R + 2.5f, Path.Direction.CW)
-    }
-    private val shadowPath = Path().apply {
-        addRoundRect(RectF(-Rink.HALF_L - 3.9f, -Rink.HALF_W - 3.9f, Rink.HALF_L + 3.9f, Rink.HALF_W + 3.9f), Rink.CORNER_R + 3.9f, Rink.CORNER_R + 3.9f, Path.Direction.CW)
-    }
-    private val adPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.3f }
-    private val adColors = IntArray(4)
-    private val adDash = Array(4) { i -> DashPathEffect(floatArrayOf(8f, 26.4f), 34.4f - i * 8.6f) }
-    private val adTrim = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 0.18f; color = Color.argb(110, 0, 0, 0) }
-    private val outerShadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2.6f; color = Color.argb(85, 0, 0, 8) }
-    private val gleamWide = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = 0.34f; color = Color.argb(105, 255, 255, 255)
-        pathEffect = DashPathEffect(floatArrayOf(7f, 29f), 0f)
-    }
-    private val gleamThin = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = 0.2f; color = Color.argb(90, 255, 255, 255)
-        pathEffect = DashPathEffect(floatArrayOf(2.5f, 17f), 11f)
-    }
-    private val stanchions = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE; strokeWidth = 0.9f; color = Color.argb(215, 60, 72, 90)
-        pathEffect = DashPathEffect(floatArrayOf(0.45f, 9.55f), 0f)
-    }
-    private val rail = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 0.22f; color = Color.argb(170, 226, 236, 246) }
+    // ------------------------------------------------------------------ perspective helpers
 
-    /** A soft shadow cast by the glass onto the stands; draw before the boards. */
-    fun drawOuterShadow(canvas: Canvas) {
-        canvas.drawPath(shadowPath, outerShadow)
-    }
+    private val warpVerts = arrayOf(FloatArray(49 * 25 * 2), FloatArray(41 * 21 * 2))
+    private val warpDims = arrayOf(intArrayOf(48, 24), intArrayOf(40, 20))
 
-    /** Coloured advert panels on the dasher boards (two of every four use the club colours). */
-    fun drawBoardAds(canvas: Canvas, homeColor: Int, awayColor: Int) {
-        adColors[0] = homeColor
-        adColors[1] = Color.parseColor("#1E3A8A")
-        adColors[2] = awayColor
-        adColors[3] = Color.parseColor("#CA8A04")
-        for (i in 0..3) {
-            adPaint.color = adColors[i]
-            adPaint.pathEffect = adDash[i]
-            canvas.drawPath(adPath, adPaint)
+    /**
+     * Draws a top-down bitmap covering the world rectangle (l, t, r, b) through the camera's
+     * perspective by warping a mesh of it. [slot] picks a preallocated vertex buffer (0 rink, 1 landscape).
+     */
+    fun drawWarped(canvas: Canvas, cam: Camera, bmp: Bitmap, l: Float, t: Float, r: Float, b: Float, slot: Int, paint: Paint) {
+        val mw = warpDims[slot][0]
+        val mh = warpDims[slot][1]
+        val v = warpVerts[slot]
+        var n = 0
+        for (j in 0..mh) {
+            val wy = t + (b - t) * j / mh
+            val sy = cam.py(wy)
+            for (i in 0..mw) {
+                val wx = l + (r - l) * i / mw
+                v[n++] = cam.px(wx, wy)
+                v[n++] = sy
+            }
         }
-        adPaint.pathEffect = null
-        canvas.drawPath(adPath, adTrim)
+        canvas.drawBitmapMesh(bmp, mw, mh, v, 0, null, 0, paint)
     }
 
-    /** Glare, posts and the top rail of the glass; draw after the glass stroke. */
-    fun drawGlassDetail(canvas: Canvas) {
-        canvas.drawPath(glassPath, gleamWide)
-        canvas.drawPath(glassPath, gleamThin)
-        canvas.drawPath(glassPath, stanchions)
-        canvas.drawPath(glassPath, rail)
+    // ------------------------------------------------------------------ boards and glass walls
+
+    private val wallH = 8.4f
+    private val texPx = 7f
+    private var perN = 0
+    private var perX = FloatArray(0)
+    private var perY = FloatArray(0)
+    private var perU = FloatArray(0)
+    private var nrmX = FloatArray(0)
+    private var nrmY = FloatArray(0)
+    private var wallVerts = FloatArray(0)
+    private var wallTex = FloatArray(0)
+    private var wallIdx = ShortArray(0)
+    private var wallBmp: Bitmap? = null
+    private val wallPaint = Paint(Paint.FILTER_BITMAP_FLAG)
+    private val sponsors = arrayOf("POWER PLAY", "NORTH STAR ICE", "FROSTBITE", "BLUE LINE", "ARCTIC FUEL", "SLAPSHOT", "ZAMBONI CLEAN", "HAT TRICK")
+
+    init {
+        buildPerimeter()
     }
 
-
-    // Far-side wall seen from the tilted camera: a tall board face with ad panels and glass above it.
-    private val farLeft = -(Rink.HALF_L - 6f)
-    private val farRight = Rink.HALF_L - 6f
-    private val farTop = -Rink.HALF_W - 8.5f
-    private val farBoardTop = -Rink.HALF_W - 4.2f
-    private val farBottom = -Rink.HALF_W - 1.1f
-    private val farGlass = Paint().apply {
-        shader = LinearGradient(0f, farTop, 0f, farBoardTop,
-            intArrayOf(Color.argb(10, 190, 225, 255), Color.argb(95, 190, 225, 255)), null, Shader.TileMode.CLAMP)
-    }
-    private val farBoard = Paint().apply {
-        shader = LinearGradient(0f, farBoardTop, 0f, farBottom,
-            intArrayOf(Color.parseColor("#FFFFFF"), Color.parseColor("#C9D5E2")), null, Shader.TileMode.CLAMP)
-    }
-    private val farAd = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 1.9f }
-    private val farLine = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 0.3f; color = Color.argb(200, 226, 236, 246) }
-
-    fun drawFarWall(canvas: Canvas, homeColor: Int, awayColor: Int) {
-        canvas.drawRect(farLeft, farTop, farRight, farBoardTop, farGlass)
-        canvas.drawLine(farLeft, farTop, farRight, farTop, farLine)
-        canvas.drawRect(farLeft, farBoardTop, farRight, farBottom, farBoard)
-        val y = farBoardTop + 1.7f
-        adColors[0] = homeColor; adColors[1] = Color.parseColor("#1E3A8A"); adColors[2] = awayColor; adColors[3] = Color.parseColor("#CA8A04")
-        for (i in 0..3) {
-            farAd.color = adColors[i]
-            farAd.pathEffect = adDash[i]
-            canvas.drawLine(farLeft, y, farRight, y, farAd)
+    private fun buildPerimeter() {
+        val xs = ArrayList<Float>()
+        val ys = ArrayList<Float>()
+        val r = Rink.CORNER_R
+        val hx = Rink.HALF_L
+        val hw = Rink.HALF_W
+        fun straight(x1: Float, y1: Float, x2: Float, y2: Float) {
+            val len = hypot(x2 - x1, y2 - y1)
+            val k = max(1, Math.ceil((len / 8f).toDouble()).toInt())
+            for (i in 0 until k) {
+                xs.add(x1 + (x2 - x1) * i / k)
+                ys.add(y1 + (y2 - y1) * i / k)
+            }
         }
-        farAd.pathEffect = null
-        canvas.drawLine(farLeft, farBottom, farRight, farBottom, farLine)
+        fun arc(cx: Float, cy: Float, a0: Float, a1: Float) {
+            val k = 9
+            for (i in 0 until k) {
+                val a = Math.toRadians((a0 + (a1 - a0) * i / k).toDouble())
+                xs.add(cx + r * kotlin.math.cos(a).toFloat())
+                ys.add(cy + r * sin(a).toFloat())
+            }
+        }
+        straight(-(hx - r), -hw, hx - r, -hw)
+        arc(hx - r, -hw + r, -90f, 0f)
+        straight(hx, -hw + r, hx, hw - r)
+        arc(hx - r, hw - r, 0f, 90f)
+        straight(hx - r, hw, -(hx - r), hw)
+        arc(-(hx - r), hw - r, 90f, 180f)
+        straight(-hx, hw - r, -hx, -hw + r)
+        arc(-(hx - r), -hw + r, 180f, 270f)
+        xs.add(xs[0]); ys.add(ys[0])
+        perN = xs.size
+        perX = FloatArray(perN) { xs[it] }
+        perY = FloatArray(perN) { ys[it] }
+        perU = FloatArray(perN)
+        nrmX = FloatArray(perN)
+        nrmY = FloatArray(perN)
+        for (i in 1 until perN) perU[i] = perU[i - 1] + hypot(perX[i] - perX[i - 1], perY[i] - perY[i - 1])
+        for (i in 0 until perN - 1) {
+            val dx = perX[i + 1] - perX[i]
+            val dy = perY[i + 1] - perY[i]
+            val len = hypot(dx, dy).coerceAtLeast(0.001f)
+            var nx = -dy / len
+            var ny = dx / len
+            val mx = (perX[i] + perX[i + 1]) * 0.5f
+            val my = (perY[i] + perY[i + 1]) * 0.5f
+            if (nx * -mx + ny * -my < 0f) { nx = -nx; ny = -ny }
+            nrmX[i] = nx; nrmY[i] = ny
+        }
+        wallVerts = FloatArray(perN * 4)
+        wallTex = FloatArray(perN * 4)
+        wallIdx = ShortArray(perN * 6)
     }
 
-    // ------------------------------------------------------------------ crowd
+    private fun luminance(c: Int) = 0.3f * Color.red(c) + 0.59f * Color.green(c) + 0.11f * Color.blue(c)
 
+    /** Bakes the board and glass strip: glass and posts on top, ad panels with sponsor text, kick plate. */
+    fun buildWall(home: Int, away: Int) {
+        val total = perU[perN - 1]
+        val tw = Math.ceil((total * texPx).toDouble()).toInt().coerceIn(64, 4090)
+        val th = Math.ceil((wallH * texPx).toDouble()).toInt()
+        val sxs = tw / total
+        val bmp = Bitmap.createBitmap(tw, th, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+        c.scale(sxs, texPx)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        // Glass.
+        p.shader = LinearGradient(0f, 0f, 0f, 3.8f, Color.argb(20, 170, 210, 240), Color.argb(85, 170, 210, 240), Shader.TileMode.CLAMP)
+        c.drawRect(0f, 0f, total, 3.8f, p)
+        p.shader = null
+        val glare = Path()
+        val nGl = max(1, Math.round(total / 24f))
+        p.color = Color.argb(46, 255, 255, 255)
+        for (i in 0 until nGl) {
+            val x = total * (i + 0.3f) / nGl
+            glare.reset()
+            glare.moveTo(x, 0f); glare.lineTo(x + 2.4f, 0f); glare.lineTo(x + 0.2f, 3.8f); glare.lineTo(x - 1.6f, 3.8f); glare.close()
+            c.drawPath(glare, p)
+        }
+        val nPost = max(1, Math.round(total / 10f))
+        p.color = Color.argb(225, 70, 84, 104)
+        for (i in 0..nPost) {
+            val x = total * i / nPost
+            c.drawRect(x - 0.14f, 0f, x + 0.14f, 4.1f, p)
+        }
+        // Rail.
+        p.color = Color.parseColor("#DCE5EF")
+        c.drawRect(0f, 3.8f, total, 4.15f, p)
+        // Boards.
+        p.shader = LinearGradient(0f, 4.15f, 0f, 7.7f, Color.parseColor("#FFFFFF"), Color.parseColor("#CBD6E2"), Shader.TileMode.CLAMP)
+        c.drawRect(0f, 4.15f, total, 7.7f, p)
+        p.shader = null
+        // Ad panels, a whole number of them so there is no seam where the strip wraps.
+        val nPan = max(2, Math.round(total / 14f))
+        val pw = total / nPan
+        val colors = intArrayOf(home, Color.parseColor("#1E3A8A"), away, Color.parseColor("#B91C1C"), Color.parseColor("#0F766E"), Color.parseColor("#CA8A04"))
+        val tp = Paint(Paint.ANTI_ALIAS_FLAG)
+        tp.typeface = Typeface.DEFAULT_BOLD
+        tp.textAlign = Paint.Align.CENTER
+        for (i in 0 until nPan) {
+            val x0 = i * pw + 0.3f
+            val x1 = (i + 1) * pw - 0.3f
+            val col = colors[i % colors.size]
+            p.color = col
+            c.drawRoundRect(x0, 4.45f, x1, 7.4f, 0.25f, 0.25f, p)
+            p.color = Color.argb(70, 255, 255, 255)
+            c.drawRect(x0, 4.45f, x1, 4.75f, p)
+            val txt = sponsors[i % sponsors.size]
+            tp.color = if (luminance(col) > 150f) Color.parseColor("#0B1220") else Color.WHITE
+            tp.textSize = 1.7f
+            val mw = tp.measureText(txt)
+            val avail = (x1 - x0) * 0.78f
+            if (mw > avail) tp.textSize = 1.7f * avail / mw
+            c.drawText(txt, (x0 + x1) / 2f + 0.5f, 6.35f, tp)
+            p.color = Color.argb(230, 255, 255, 255)
+            c.drawCircle(x0 + 0.9f, 5.95f, 0.38f, p)
+        }
+        // Kick plate.
+        p.shader = LinearGradient(0f, 7.7f, 0f, wallH, Color.parseColor("#F4C542"), Color.parseColor("#B8891A"), Shader.TileMode.CLAMP)
+        c.drawRect(0f, 7.7f, total, wallH, p)
+        p.shader = null
+        wallBmp?.recycle()
+        wallBmp = bmp
+        wallPaint.shader = BitmapShader(bmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        // Texture coordinates are in texels.
+        for (i in 0 until perN) {
+            wallTex[i * 4] = perU[i] * sxs
+            wallTex[i * 4 + 1] = 0f
+            wallTex[i * 4 + 2] = perU[i] * sxs
+            wallTex[i * 4 + 3] = th.toFloat()
+        }
+    }
+
+    /** The wall faces that can be seen from the camera, as one textured, perspective-projected mesh. */
+    fun drawWalls(canvas: Canvas, cam: Camera) {
+        if (wallBmp == null) return
+        for (i in 0 until perN) {
+            val k = cam.ppf(perY[i])
+            val bx = cam.px(perX[i], perY[i])
+            val by = cam.py(perY[i])
+            wallVerts[i * 4] = bx
+            wallVerts[i * 4 + 1] = by - wallH * k
+            wallVerts[i * 4 + 2] = bx
+            wallVerts[i * 4 + 3] = by
+        }
+        var ic = 0
+        for (i in 0 until perN - 1) {
+            val mx = (perX[i] + perX[i + 1]) * 0.5f
+            val my = (perY[i] + perY[i + 1]) * 0.5f
+            val vx = cam.x - mx
+            val vy = cam.y + 70f - my
+            if (nrmX[i] * vx + nrmY[i] * vy > 0f && my < cam.y + 8f) {
+                val a = (2 * i).toShort()
+                val b = (2 * i + 1).toShort()
+                val c = (2 * i + 2).toShort()
+                val d = (2 * i + 3).toShort()
+                wallIdx[ic++] = a; wallIdx[ic++] = b; wallIdx[ic++] = c
+                wallIdx[ic++] = c; wallIdx[ic++] = b; wallIdx[ic++] = d
+            }
+        }
+        if (ic == 0) return
+        canvas.drawVertices(Canvas.VertexMode.TRIANGLES, perN * 2, wallVerts, 0, wallTex, 0, null, 0, wallIdx, 0, ic, wallPaint)
+    }
+
+    // ------------------------------------------------------------------ stands
+
+    private class Layer(val yb: Float, val hFt: Float, val wFt: Float, val dim: Float) {
+        var bmp: Bitmap? = null
+        val dst = RectF()
+    }
+
+    private val layers = arrayOf(
+        Layer(-Rink.HALF_W - 4f, 9f, 300f, 1f),
+        Layer(-Rink.HALF_W - 12f, 11f, 330f, 0.8f),
+        Layer(-Rink.HALF_W - 24f, 14f, 380f, 0.6f)
+    )
+    private var sideStand: Bitmap? = null
+    private val standPaint = Paint(Paint.FILTER_BITMAP_FLAG)
+    private val sideVerts = FloatArray(8)
+    private val sideTex = FloatArray(8)
+    private val sideIdx = shortArrayOf(0, 1, 2, 2, 1, 3)
+    private val sidePaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val skin = intArrayOf(
         Color.parseColor("#F2C9A5"), Color.parseColor("#E0A87C"), Color.parseColor("#C58C5E"),
         Color.parseColor("#8D5A3B"), Color.parseColor("#5C3A26"), Color.parseColor("#F7D9C0")
@@ -295,152 +435,194 @@ class WorldArt {
     private fun shade(color: Int, f: Float): Int =
         Color.rgb((Color.red(color) * f).toInt().coerceIn(0, 255), (Color.green(color) * f).toInt().coerceIn(0, 255), (Color.blue(color) * f).toInt().coerceIn(0, 255))
 
-    /** Draws one spectator facing the rink; [ang] is the direction (degrees) of the rink from the seat. */
-    private fun fan(c: Canvas, p: Paint, x: Float, y: Float, ang: Float, shirt: Int, rng: Random, dim: Float) {
-        c.save()
-        c.translate(x, y)
-        c.rotate(ang)
+    /** One upright spectator; [yb] is the bottom of his seat row. */
+    private fun fan(c: Canvas, p: Paint, x: Float, yb: Float, shirt: Int, rng: Random, dim: Float) {
         p.style = Paint.Style.FILL
         p.color = shade(shirt, dim)
-        tmpRect.set(-0.4f, -0.66f, 0.28f, 0.66f)
-        c.drawOval(tmpRect, p)
+        tmpRect.set(x - 0.55f, yb - 1.05f, x + 0.55f, yb + 0.15f)
+        c.drawRoundRect(tmpRect, 0.4f, 0.4f, p)
         if (rng.nextFloat() < 0.1f) {
-            // Arms up, cheering.
             p.color = shade(skin[rng.nextInt(skin.size)], dim)
-            c.drawCircle(0.5f, -0.58f, 0.17f, p)
-            c.drawCircle(0.5f, 0.58f, 0.17f, p)
+            c.drawCircle(x - 0.6f, yb - 1.45f, 0.17f, p)
+            c.drawCircle(x + 0.6f, yb - 1.45f, 0.17f, p)
         }
         p.color = shade(hair[rng.nextInt(hair.size)], dim)
-        c.drawCircle(0.04f, 0f, 0.33f, p)
+        c.drawCircle(x, yb - 1.25f, 0.36f, p)
         p.color = shade(skin[rng.nextInt(skin.size)], dim)
-        c.drawCircle(0.14f, 0f, 0.26f, p)
-        c.restore()
+        c.drawCircle(x, yb - 1.15f, 0.28f, p)
     }
 
-    fun buildCrowd(homeColor: Int, awayColor: Int): Bitmap {
-        val bw = (2f * Camera.WORLD_HALF_W * CROWD_PX).toInt().coerceAtLeast(8)
-        val bh = (2f * Camera.WORLD_HALF_H * CROWD_PX).toInt().coerceAtLeast(8)
-        val bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.RGB_565)
-        val c = Canvas(bmp)
-        c.drawColor(Color.parseColor("#070C18"))
-        c.translate(bw / 2f, bh / 2f)
-        c.scale(CROWD_PX, CROWD_PX)
-        val rng = Random(7)
+    private fun fanRows(c: Canvas, wFt: Float, hFt: Float, home: Int, away: Int, dim: Float, rng: Random) {
         val p = Paint(Paint.ANTI_ALIAS_FLAG)
-        val stepRow = 1.6f
-        val stepSeat = 1.1f
-        var ring = Rink.HALF_W + 3.5f
-        var row = 0
-        while (ring < Camera.WORLD_HALF_H + 1f) {
-            val halfL = Rink.HALF_L + 3.5f + row * stepRow
-            val halfW = ring
-            val dim = (1f - row * 0.075f).coerceAtLeast(0.42f)
-            // Stand risers: a darker band behind each row.
-            p.style = Paint.Style.STROKE
-            p.strokeWidth = stepRow * 0.9f
-            p.color = shade(Color.parseColor("#141C2E"), dim)
-            tmpRect.set(-halfL, -halfW, halfL, halfW)
-            c.drawRoundRect(tmpRect, 3f, 3f, p)
-            var idx = 0
-            var sx = -halfL
-            while (sx <= halfL) {
-                idx++
-                if (idx % 26 != 0) {
-                    for (side in 0..1) {
-                        val sy = if (side == 0) -halfW else halfW
-                        seat(c, p, sx + rng.nextFloat() * 0.25f, sy + rng.nextFloat() * 0.25f, if (side == 0) 90f else -90f, sx, homeColor, awayColor, rng, dim)
-                    }
-                }
-                sx += stepSeat
-            }
-            var sy = -halfW
-            while (sy <= halfW) {
-                idx++
-                if (idx % 26 != 0) {
-                    for (side in 0..1) {
-                        val x = if (side == 0) -halfL else halfL
-                        seat(c, p, x + rng.nextFloat() * 0.25f, sy + rng.nextFloat() * 0.25f, if (side == 0) 0f else 180f, x, homeColor, awayColor, rng, dim)
-                    }
-                }
-                sy += stepSeat
-            }
-            ring += stepRow
-            row++
-        }
-
-        // Dark walkway behind the glass with a thin lit edge.
-        p.style = Paint.Style.STROKE
-        p.strokeWidth = 3f
-        p.color = Color.parseColor("#0F1B2E")
-        tmpRect.set(-Rink.HALF_L - 2.5f, -Rink.HALF_W - 2.5f, Rink.HALF_L + 2.5f, Rink.HALF_W + 2.5f)
-        c.drawRoundRect(tmpRect, Rink.CORNER_R + 2.5f, Rink.CORNER_R + 2.5f, p)
-        p.strokeWidth = 0.3f
-        p.color = Color.parseColor("#27406A")
-        tmpRect.inset(-1.5f, -1.5f)
-        c.drawRoundRect(tmpRect, Rink.CORNER_R + 4f, Rink.CORNER_R + 4f, p)
-
-        // Camera flashes twinkling in the stands.
-        p.style = Paint.Style.FILL
-        for (i in 0 until 90) {
-            val x = (rng.nextFloat() - 0.5f) * 2f * Camera.WORLD_HALF_W
-            val y = (rng.nextFloat() - 0.5f) * 2f * Camera.WORLD_HALF_H
-            if (abs(x) < Rink.HALF_L + 5f && abs(y) < Rink.HALF_W + 5f) continue
-            p.color = Color.argb(70, 255, 255, 235)
-            c.drawCircle(x, y, 0.55f, p)
-            p.color = Color.argb(210, 255, 255, 245)
-            c.drawCircle(x, y, 0.2f, p)
-        }
-
-        // Arena lighting falls off toward the back rows and corners.
-        p.shader = RadialGradient(
-            0f, 0f, Camera.WORLD_HALF_W * 1.1f,
-            intArrayOf(Color.argb(0, 0, 0, 0), Color.argb(0, 0, 0, 0), Color.argb(175, 2, 6, 16)),
-            floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP
-        )
-        c.drawRect(-Camera.WORLD_HALF_W, -Camera.WORLD_HALF_H, Camera.WORLD_HALF_W, Camera.WORLD_HALF_H, p)
-        p.shader = null
-        return bmp
-    }
-
-    private fun seat(c: Canvas, p: Paint, x: Float, y: Float, ang: Float, along: Float, home: Int, away: Int, rng: Random, dim: Float) {
-        val r = rng.nextFloat()
-        if (r < 0.06f) {
-            // Empty seat.
+        val rowH = 1.7f
+        val rows = (hFt / rowH).toInt() + 1
+        for (r in 0 until rows) {
+            val yb = hFt - r * rowH
+            val rd = dim * (1f - r * 0.05f).coerceAtLeast(0.5f)
             p.style = Paint.Style.FILL
-            p.color = shade(Color.parseColor("#22304A"), dim)
-            tmpRect.set(x - 0.4f, y - 0.4f, x + 0.4f, y + 0.4f)
-            c.drawRoundRect(tmpRect, 0.15f, 0.15f, p)
-            return
+            p.color = shade(Color.parseColor("#141C2E"), rd)
+            c.drawRect(0f, yb - 0.1f, wFt, yb + 0.6f, p)
+            var x = 0.6f + rng.nextFloat() * 0.5f
+            var idx = 0
+            while (x < wFt) {
+                idx++
+                if (idx % 28 != 0) {
+                    if (rng.nextFloat() < 0.06f) {
+                        p.color = shade(Color.parseColor("#22304A"), rd)
+                        c.drawRect(x - 0.4f, yb - 0.7f, x + 0.4f, yb, p)
+                    } else {
+                        val q = rng.nextFloat()
+                        val shirt = when {
+                            q < 0.40f -> if (x < wFt / 2f) home else away
+                            q < 0.46f -> if (x < wFt / 2f) away else home
+                            else -> shirts[rng.nextInt(shirts.size)]
+                        }
+                        fan(c, p, x, yb, shirt, rng, rd)
+                    }
+                }
+                x += 1.0f + rng.nextFloat() * 0.25f
+            }
         }
-        // Each end of the arena backs its own club; the rest wear assorted colours.
-        val shirt = when {
-            r < 0.40f -> if (along < 0f) home else away
-            r < 0.46f -> if (along < 0f) away else home
-            else -> shirts[rng.nextInt(shirts.size)]
-        }
-        fan(c, p, x, y, ang, shirt, rng, dim)
     }
 
-    // ------------------------------------------------------------------ referee
+    /** Bakes the three tiers behind the far wall plus the stand at the ends. */
+    fun buildStands(home: Int, away: Int) {
+        val rng = Random(7)
+        for ((li, l) in layers.withIndex()) {
+            val bw = (l.wFt * STAND_PX).toInt()
+            val bh = (l.hFt * STAND_PX).toInt()
+            val bmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.RGB_565)
+            val c = Canvas(bmp)
+            c.drawColor(shade(Color.parseColor("#0A101C"), l.dim))
+            c.scale(STAND_PX, STAND_PX)
+            fanRows(c, l.wFt, l.hFt, home, away, l.dim, rng)
+            val p = Paint(Paint.ANTI_ALIAS_FLAG)
+            if (li == 0) {
+                p.color = Color.argb(150, 140, 175, 220)
+                c.drawRect(0f, l.hFt - 0.35f, l.wFt, l.hFt, p)
+            }
+            if (li == 2) {
+                // Arena lights glowing in the rafters.
+                var x = 4f
+                while (x < l.wFt) {
+                    p.color = Color.argb(40, 255, 250, 225)
+                    c.drawCircle(x, 1.2f, 2.2f, p)
+                    p.color = Color.argb(230, 255, 252, 235)
+                    c.drawCircle(x, 1.2f, 0.55f, p)
+                    x += 17f
+                }
+            }
+            // Shade toward the top of each tier so the decks read as separate.
+            p.shader = LinearGradient(0f, 0f, 0f, l.hFt, Color.argb(120, 2, 5, 12), Color.argb(0, 2, 5, 12), Shader.TileMode.CLAMP)
+            c.drawRect(0f, 0f, l.wFt, l.hFt, p)
+            l.bmp?.recycle()
+            l.bmp = bmp
+        }
+        val sw = (90f * STAND_PX).toInt()
+        val sh = (13f * STAND_PX).toInt()
+        val sb = Bitmap.createBitmap(sw, sh, Bitmap.Config.RGB_565)
+        val c = Canvas(sb)
+        c.drawColor(Color.parseColor("#0A101C"))
+        c.scale(STAND_PX, STAND_PX)
+        fanRows(c, 90f, 13f, home, away, 0.85f, rng)
+        sideStand?.recycle()
+        sideStand = sb
+        sidePaint.shader = BitmapShader(sb, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+    }
 
-    private var refX = 0f
-    private var refY = 28f
+    /** Draws the tiers as billboards at their own depths, so they parallax against each other. */
+    fun drawStands(canvas: Canvas, cam: Camera) {
+        val side = sideStand
+        if (side != null) {
+            for (sgn in signs) {
+                val xs = sgn * (Rink.HALF_L + 9f)
+                val y0 = -Rink.HALF_W
+                val y1 = 14f
+                val k0 = cam.ppf(y0)
+                val k1 = cam.ppf(y1)
+                val b0 = cam.py(y0) - wallH * k0
+                val b1 = cam.py(y1) - wallH * k1
+                val x0 = cam.px(xs, y0)
+                val x1 = cam.px(xs, y1)
+                sideVerts[0] = x0; sideVerts[1] = b0 - 13f * k0
+                sideVerts[2] = x0; sideVerts[3] = b0
+                sideVerts[4] = x1; sideVerts[5] = b1 - 13f * k1
+                sideVerts[6] = x1; sideVerts[7] = b1
+                val tw = side.width.toFloat()
+                val th = side.height.toFloat()
+                val u0 = if (sgn < 0f) 0f else tw
+                val u1 = if (sgn < 0f) tw else 0f
+                sideTex[0] = u0; sideTex[1] = 0f
+                sideTex[2] = u0; sideTex[3] = th
+                sideTex[4] = u1; sideTex[5] = 0f
+                sideTex[6] = u1; sideTex[7] = th
+                if (max(x0, x1) > 0f && min(x0, x1) < cam.screenW) {
+                    canvas.drawVertices(Canvas.VertexMode.TRIANGLES, 4, sideVerts, 0, sideTex, 0, null, 0, sideIdx, 0, 6, sidePaint)
+                }
+            }
+        }
+        var bottom = cam.py(-Rink.HALF_W) - wallH * cam.ppf(-Rink.HALF_W) + 2f
+        for (l in layers) {
+            val bmp = l.bmp ?: continue
+            val f = cam.depth(l.yb)
+            val wpx = l.wFt * cam.scale * f
+            val hpx = l.hFt * cam.scale * f
+            val cx = cam.px(0f, l.yb)
+            l.dst.set(cx - wpx / 2f, bottom - hpx, cx + wpx / 2f, bottom)
+            if (l.dst.bottom > 0f && l.dst.top < cam.screenH) canvas.drawBitmap(bmp, null, l.dst, standPaint)
+            bottom -= hpx - 1f
+        }
+    }
+
+    // ------------------------------------------------------------------ camera flashes
+
+    private val flashRng = Random(5)
+    private val flashLayer = IntArray(14)
+    private val flashU = FloatArray(14)
+    private val flashV = FloatArray(14)
+    private val flashLife = FloatArray(14)
+    private val flashPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    fun updateFlashes(dt: Float) {
+        for (i in flashLife.indices) {
+            flashLife[i] -= dt
+            if (flashLife[i] <= 0f && flashRng.nextFloat() < dt * 1.6f) {
+                flashLayer[i] = flashRng.nextInt(layers.size)
+                flashU[i] = flashRng.nextFloat()
+                flashV[i] = 0.15f + flashRng.nextFloat() * 0.85f
+                flashLife[i] = 0.14f + flashRng.nextFloat() * 0.1f
+            }
+        }
+    }
+
+    fun drawFlashes(canvas: Canvas) {
+        for (i in flashLife.indices) {
+            if (flashLife[i] <= 0f) continue
+            val d = layers[flashLayer[i]].dst
+            if (d.width() <= 0f) continue
+            val x = d.left + flashU[i] * d.width()
+            val y = d.top + flashV[i] * d.height()
+            val a = (flashLife[i] / 0.2f).coerceIn(0f, 1f)
+            flashPaint.color = Color.argb((90 * a).toInt(), 255, 255, 240)
+            canvas.drawCircle(x, y, 9f, flashPaint)
+            flashPaint.color = Color.argb((235 * a).toInt(), 255, 255, 250)
+            canvas.drawCircle(x, y, 3f, flashPaint)
+        }
+    }
+
+    // ------------------------------------------------------------------ referee (animation state only)
+
+    var refX = 0f
+        private set
+    var refY = 28f
+        private set
+    var refAngle = 0f
+        private set
+    var refStride = 0f
+        private set
     private var refVx = 0f
     private var refVy = 0f
-    private var refAngle = 0f
-    private var refStride = 0f
     private var refSide = 1f
-
-    private val refShadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(70, 10, 20, 40) }
-    private val refWhite = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#F1F5F9") }
-    private val refBlack = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#0B0F17") }
-    private val refOutline = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 0.14f; color = Color.parseColor("#0B0F17") }
-    private val refStripe = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 0.26f; strokeCap = Paint.Cap.BUTT; color = Color.parseColor("#0B0F17") }
-    private val refArm = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 0.7f; strokeCap = Paint.Cap.ROUND; color = Color.parseColor("#0B0F17") }
-    private val refBand = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 0.72f; strokeCap = Paint.Cap.BUTT; color = Color.parseColor("#F97316") }
-    private val refGloss = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(140, 255, 255, 255) }
-    private val refStripes = FloatArray(12)
-    private val refBands = FloatArray(8)
 
     /** Moves the referee toward a spot off the play. Animation state only; world is not modified. */
     fun updateReferee(world: World, dt: Float) {
@@ -475,44 +657,5 @@ class WorldArt {
         while (diff < -PI.toFloat()) diff += 2f * PI.toFloat()
         refAngle += diff * (1f - exp(-d * 6f))
         refStride += spd * d * 0.8f
-    }
-
-    /** Striped shirt, black helmet, orange armbands. A dozen draw calls in total. */
-    fun drawReferee(canvas: Canvas) {
-        val r = 1.5f
-        tmpRect.set(refX - r * 1.3f + 0.3f, refY - r * 1.0f + 0.5f, refX + r * 1.3f + 0.3f, refY + r * 1.0f + 0.5f)
-        canvas.drawOval(tmpRect, refShadow)
-        canvas.save()
-        canvas.translate(refX, refY)
-        canvas.rotate(Math.toDegrees(refAngle.toDouble()).toFloat())
-        canvas.scale(1.25f, 1.25f)
-        val st = sin(refStride * 1.3f)
-        for (side in isigns) {
-            val ph = st * side
-            tmpRect.set(-0.5f * r + ph * 0.6f * r, side * 0.72f * r - 0.2f * r, 0.5f * r + ph * 0.6f * r, side * 0.72f * r + 0.2f * r)
-            canvas.drawRoundRect(tmpRect, 0.15f * r, 0.15f * r, refBlack)
-        }
-        // Arms and orange bands.
-        canvas.drawLine(-0.1f * r, -0.8f * r, 0.7f * r, -0.95f * r, refArm)
-        canvas.drawLine(-0.1f * r, 0.8f * r, 0.7f * r, 0.95f * r, refArm)
-        refBands[0] = 0.25f * r; refBands[1] = -0.88f * r; refBands[2] = 0.25f * r + 0.01f; refBands[3] = -0.88f * r
-        refBands[4] = 0.25f * r; refBands[5] = 0.88f * r; refBands[6] = 0.25f * r + 0.01f; refBands[7] = 0.88f * r
-        canvas.drawLine(0.15f * r, -0.86f * r, 0.35f * r, -0.9f * r, refBand)
-        canvas.drawLine(0.15f * r, 0.86f * r, 0.35f * r, 0.9f * r, refBand)
-        // Torso with vertical stripes.
-        tmpRect.set(-0.95f * r, -1.05f * r, 0.8f * r, 1.05f * r)
-        canvas.drawOval(tmpRect, refWhite)
-        canvas.drawOval(tmpRect, refOutline)
-        var n = 0
-        for (sx in stripeX) {
-            val h = sqrt((1f - ((sx + 0.075f) / 0.875f) * ((sx + 0.075f) / 0.875f)).coerceAtLeast(0f)) * 1.0f
-            refStripes[n++] = sx * r; refStripes[n++] = -h * r
-            refStripes[n++] = sx * r; refStripes[n++] = h * r
-        }
-        canvas.drawLines(refStripes, 0, n, refStripe)
-        // Helmet.
-        canvas.drawCircle(0.26f * r, 0f, 0.55f * r, refBlack)
-        canvas.drawCircle(0.4f * r, -0.2f * r, 0.13f * r, refGloss)
-        canvas.restore()
     }
 }
