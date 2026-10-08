@@ -48,13 +48,18 @@ adb: `C:/Users/strid/AppData/Local/Android/Sdk/platform-tools/adb.exe`
   - `AIController`: skater formations/chasing/carrier decisions and goalie positioning.
   - `PhysicsEngine`: skater movement/collisions, puck glide, boards, posts, nets. Goals use a swept
     test (must cross the goal line from the front between the posts); carried pucks are kept out of nets.
-  - `Renderer` + `Camera`: drawing in world units (rink, crowd bitmap, detailed
-    skaters/goalies, snow spray particles, puck) then HUD/controls in screen space. Avoid
+  - `Camera` is a perspective projection (homography): `px(wx, wy)`, `py(wy)`, `depth(wy)`,
+    `ppf(wy)` (screen px per foot at a depth); far is smaller, side boards converge. There is no
+    canvas transform for the world any more: everything is projected per item.
+  - `Renderer` draws: stands (`WorldArt.drawStands`, three billboard tiers with parallax + flashes),
+    the baked top-down rink bitmap warped through the camera (`WorldArt.drawWarped`, one mesh call),
+    the boards/glass/ad wall as one textured `drawVertices` mesh (`WorldArt.drawWalls`), then ground
+    effects, then players/puck/referee sorted by y, then HUD/controls in screen space. Avoid
     allocations in draw paths; paints and paths are reused.
-  - Players are drawn from per-team sprites (legs per stride frame, arms+stick rotated for the swing,
-    torso; goalie per stance) pre-rendered at screen resolution from the vector art. On the Fire GPU
-    the cost is per draw call (~15-20 us each), so keep per-frame draw calls low; the vector path is
-    only used while a shot is charging (the shaft flexes).
+  - `CharacterArt` builds upright skater/goalie/referee billboards procedurally (3D capsule parts,
+    16 facings x 8 poses, goalie 4 stances), lazily, at <= 13 px/ft. The jersey number is drawn per
+    frame on the back when a player faces away. `WorldArt` holds stands, wall texture (sponsor panels),
+    ice overlay, extra markings and the referee's follow logic (animation state only).
   - `GameView` draws single-device matches with `lockHardwareCanvas()` and network matches with the
     software `lockCanvas()` (a RenderThread abort was seen during the WiFi join flow). The fps log
     line splits frame time into update / lock / record / post; a large "post" means GPU-bound.
