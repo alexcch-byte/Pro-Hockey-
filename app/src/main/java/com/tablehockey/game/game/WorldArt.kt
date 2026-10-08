@@ -38,6 +38,9 @@ class WorldArt {
     companion object {
         private const val ICE_PX = 4f
         private const val STAND_PX = 6f
+        private const val RAKE_H = 20f
+        private const val SIDE_SPAN = 120f
+        private const val RAKE_D = 26f
     }
 
     private val tmpRect = RectF()
@@ -189,8 +192,8 @@ class WorldArt {
 
     // ------------------------------------------------------------------ perspective helpers
 
-    private val warpVerts = arrayOf(FloatArray(49 * 25 * 2), FloatArray(41 * 21 * 2))
-    private val warpDims = arrayOf(intArrayOf(48, 24), intArrayOf(40, 20))
+    private val warpVerts = arrayOf(FloatArray(33 * 21 * 2), FloatArray(25 * 17 * 2))
+    private val warpDims = arrayOf(intArrayOf(32, 20), intArrayOf(24, 16))
 
     /**
      * Draws a top-down bitmap covering the world rectangle (l, t, r, b) through the camera's
@@ -223,6 +226,11 @@ class WorldArt {
     private var perU = FloatArray(0)
     private var nrmX = FloatArray(0)
     private var nrmY = FloatArray(0)
+    private var outX = FloatArray(0)
+    private var outY = FloatArray(0)
+    private var rakeVerts = FloatArray(0)
+    private var rakeTex = FloatArray(0)
+    private var rakeIdx = ShortArray(0)
     private var wallVerts = FloatArray(0)
     private var wallTex = FloatArray(0)
     private var wallIdx = ShortArray(0)
@@ -283,6 +291,20 @@ class WorldArt {
             if (nx * -mx + ny * -my < 0f) { nx = -nx; ny = -ny }
             nrmX[i] = nx; nrmY[i] = ny
         }
+        outX = FloatArray(perN)
+        outY = FloatArray(perN)
+        for (i in 0 until perN) {
+            val a = if (i == 0) perN - 2 else i - 1
+            val b = if (i == perN - 1) 0 else i
+            var ox = -(nrmX[a] + nrmX[b])
+            var oy = -(nrmY[a] + nrmY[b])
+            val l = hypot(ox, oy).coerceAtLeast(0.001f)
+            ox /= l; oy /= l
+            outX[i] = ox; outY[i] = oy
+        }
+        rakeVerts = FloatArray(perN * 4)
+        rakeTex = FloatArray(perN * 4)
+        rakeIdx = ShortArray(perN * 6)
         wallVerts = FloatArray(perN * 4)
         wallTex = FloatArray(perN * 4)
         wallIdx = ShortArray(perN * 6)
@@ -330,9 +352,9 @@ class WorldArt {
         val nPan = max(2, Math.round(total / 14f))
         val pw = total / nPan
         val colors = intArrayOf(home, Color.parseColor("#1E3A8A"), away, Color.parseColor("#B91C1C"), Color.parseColor("#0F766E"), Color.parseColor("#CA8A04"))
-        val tp = Paint(Paint.ANTI_ALIAS_FLAG)
+        val tp = Paint(Paint.ANTI_ALIAS_FLAG or Paint.SUBPIXEL_TEXT_FLAG or Paint.LINEAR_TEXT_FLAG)
         tp.typeface = Typeface.DEFAULT_BOLD
-        tp.textAlign = Paint.Align.CENTER
+        tp.textAlign = Paint.Align.LEFT
         for (i in 0 until nPan) {
             val x0 = i * pw + 0.3f
             val x1 = (i + 1) * pw - 0.3f
@@ -341,20 +363,36 @@ class WorldArt {
             c.drawRoundRect(x0, 4.45f, x1, 7.4f, 0.25f, 0.25f, p)
             p.color = Color.argb(70, 255, 255, 255)
             c.drawRect(x0, 4.45f, x1, 4.75f, p)
-            val txt = sponsors[i % sponsors.size]
-            tp.color = if (luminance(col) > 150f) Color.parseColor("#0B1220") else Color.WHITE
-            tp.textSize = 1.7f
-            val mw = tp.measureText(txt)
-            val avail = (x1 - x0) * 0.78f
-            if (mw > avail) tp.textSize = 1.7f * avail / mw
-            c.drawText(txt, (x0 + x1) / 2f + 0.5f, 6.35f, tp)
             p.color = Color.argb(230, 255, 255, 255)
             c.drawCircle(x0 + 0.9f, 5.95f, 0.38f, p)
         }
+        // Text is drawn in pixel space (no canvas scale) so glyph advances are not clipped or kerned wrongly.
+        c.save()
+        c.scale(1f / sxs, 1f / texPx)
+        for (i in 0 until nPan) {
+            val x0 = (i * pw + 0.3f) * sxs
+            val x1 = ((i + 1) * pw - 0.3f) * sxs
+            val col = colors[i % colors.size]
+            val txt = sponsors[i % sponsors.size]
+            tp.color = if (luminance(col) > 150f) Color.parseColor("#0B1220") else Color.WHITE
+            tp.textSize = 2.1f * texPx
+            tp.letterSpacing = 0.06f
+            var mw = tp.measureText(txt)
+            val avail = (x1 - x0) * 0.74f
+            if (mw > avail) {
+                tp.textSize = tp.textSize * avail / mw
+                mw = tp.measureText(txt)
+            }
+            val left = x0 + (x1 - x0) * 0.2f + ((x1 - x0) * 0.76f - mw) / 2f
+            c.drawText(txt, left, 6.5f * texPx, tp)
+        }
+        c.restore()
         // Kick plate.
         p.shader = LinearGradient(0f, 7.7f, 0f, wallH, Color.parseColor("#F4C542"), Color.parseColor("#B8891A"), Shader.TileMode.CLAMP)
         c.drawRect(0f, 7.7f, total, wallH, p)
         p.shader = null
+        System.out.println("TEXDBG tw=" + tw + " th=" + th + " total=" + total + " nPan=" + nPan + " px=" + Integer.toHexString(bmp.getPixel(tw - 5, th / 2)) + " " + Integer.toHexString(bmp.getPixel(tw - 60, th / 2)) + " " + Integer.toHexString(bmp.getPixel(tw - 1, th / 2)))
+        java.io.File("/tmp/claude-0/-home-user-Pro-Hockey-/69963c48-6a5e-5e15-84fb-eaa496dedd59/scratchpad/mine/wall.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
         wallBmp?.recycle()
         wallBmp = bmp
         wallPaint.shader = BitmapShader(bmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
@@ -395,6 +433,7 @@ class WorldArt {
             }
         }
         if (ic == 0) return
+        if (cam.x == 0f) { for (q in perN - 12 until perN) System.out.println("WALL q=" + q + " x=" + wallVerts[q*4] + " yb=" + wallVerts[q*4+3] + " u=" + wallTex[q*4] + " vis=" + (0 until ic).any { wallIdx[it].toInt() == 2*q }) }
         canvas.drawVertices(Canvas.VertexMode.TRIANGLES, perN * 2, wallVerts, 0, wallTex, 0, null, 0, wallIdx, 0, ic, wallPaint)
     }
 
@@ -407,15 +446,15 @@ class WorldArt {
 
     private val layers = arrayOf(
         Layer(-Rink.HALF_W - 4f, 9f, 300f, 1f),
-        Layer(-Rink.HALF_W - 12f, 11f, 330f, 0.8f),
-        Layer(-Rink.HALF_W - 24f, 14f, 380f, 0.6f)
+        Layer(-Rink.HALF_W - 12f, 11f, 330f, 0.88f),
+        Layer(-Rink.HALF_W - 24f, 14f, 380f, 0.74f)
     )
     private var sideStand: Bitmap? = null
     private val standPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val sideVerts = FloatArray(8)
     private val sideTex = FloatArray(8)
     private val sideIdx = shortArrayOf(0, 1, 2, 2, 1, 3)
-    private val sidePaint = Paint(Paint.FILTER_BITMAP_FLAG)
+    private val sidePaint = Paint(Paint.FILTER_BITMAP_FLAG).apply { colorFilter = android.graphics.LightingColorFilter(0xFF8C93A6.toInt(), 0x00000000) }
     private val skin = intArrayOf(
         Color.parseColor("#F2C9A5"), Color.parseColor("#E0A87C"), Color.parseColor("#C58C5E"),
         Color.parseColor("#8D5A3B"), Color.parseColor("#5C3A26"), Color.parseColor("#F7D9C0")
@@ -481,6 +520,19 @@ class WorldArt {
                 x += 1.0f + rng.nextFloat() * 0.25f
             }
         }
+            // Aisles: lit stair strips running up the rake.
+        var ax = 11f
+        while (ax < wFt) {
+            p.color = shade(Color.parseColor("#2B3652"), dim)
+            c.drawRect(ax - 0.8f, 0f, ax + 0.8f, hFt, p)
+            p.color = shade(Color.parseColor("#56658A"), dim)
+            var yy = hFt
+            while (yy > 0f) {
+                c.drawRect(ax - 0.8f, yy - 0.1f, ax + 0.8f, yy + 0.05f, p)
+                yy -= rowH
+            }
+            ax += 26f
+        }
     }
 
     /** Bakes the three tiers behind the far wall plus the stand at the ends. */
@@ -495,10 +547,8 @@ class WorldArt {
             c.scale(STAND_PX, STAND_PX)
             fanRows(c, l.wFt, l.hFt, home, away, l.dim, rng)
             val p = Paint(Paint.ANTI_ALIAS_FLAG)
-            if (li == 0) {
-                p.color = Color.argb(150, 140, 175, 220)
-                c.drawRect(0f, l.hFt - 0.35f, l.wFt, l.hFt, p)
-            }
+            p.color = Color.argb(if (li == 0) 170 else 110, 140, 175, 220)
+            c.drawRect(0f, l.hFt - 0.35f, l.wFt, l.hFt, p)
             if (li == 2) {
                 // Arena lights glowing in the rafters.
                 var x = 4f
@@ -516,48 +566,50 @@ class WorldArt {
             l.bmp?.recycle()
             l.bmp = bmp
         }
-        val sw = (90f * STAND_PX).toInt()
-        val sh = (13f * STAND_PX).toInt()
+        val sw = (SIDE_SPAN * STAND_PX).toInt()
+        val sh = (RAKE_H * STAND_PX).toInt()
         val sb = Bitmap.createBitmap(sw, sh, Bitmap.Config.RGB_565)
         val c = Canvas(sb)
         c.drawColor(Color.parseColor("#0A101C"))
         c.scale(STAND_PX, STAND_PX)
-        fanRows(c, 90f, 13f, home, away, 0.85f, rng)
+        fanRows(c, SIDE_SPAN, RAKE_H, home, away, 0.9f, rng)
         sideStand?.recycle()
         sideStand = sb
-        sidePaint.shader = BitmapShader(sb, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        sidePaint.shader = BitmapShader(sb, Shader.TileMode.REPEAT, Shader.TileMode.CLAMP)
     }
 
     /** Draws the tiers as billboards at their own depths, so they parallax against each other. */
     fun drawStands(canvas: Canvas, cam: Camera) {
         val side = sideStand
         if (side != null) {
-            for (sgn in signs) {
-                val xs = sgn * (Rink.HALF_L + 9f)
-                val y0 = -Rink.HALF_W
-                val y1 = 14f
-                val k0 = cam.ppf(y0)
-                val k1 = cam.ppf(y1)
-                val b0 = cam.py(y0) - wallH * k0
-                val b1 = cam.py(y1) - wallH * k1
-                val x0 = cam.px(xs, y0)
-                val x1 = cam.px(xs, y1)
-                sideVerts[0] = x0; sideVerts[1] = b0 - 13f * k0
-                sideVerts[2] = x0; sideVerts[3] = b0
-                sideVerts[4] = x1; sideVerts[5] = b1 - 13f * k1
-                sideVerts[6] = x1; sideVerts[7] = b1
-                val tw = side.width.toFloat()
-                val th = side.height.toFloat()
-                val u0 = if (sgn < 0f) 0f else tw
-                val u1 = if (sgn < 0f) tw else 0f
-                sideTex[0] = u0; sideTex[1] = 0f
-                sideTex[2] = u0; sideTex[3] = th
-                sideTex[4] = u1; sideTex[5] = 0f
-                sideTex[6] = u1; sideTex[7] = th
-                if (max(x0, x1) > 0f && min(x0, x1) < cam.screenW) {
-                    canvas.drawVertices(Canvas.VertexMode.TRIANGLES, 4, sideVerts, 0, sideTex, 0, null, 0, sideIdx, 0, 6, sidePaint)
-                }
+            // A raked bowl of seats running round the whole rink, so the corners and ends are never empty.
+            val th = side.height.toFloat()
+            for (i in 0 until perN) {
+                val ox = perX[i] + outX[i] * RAKE_D
+                val oy = perY[i] + outY[i] * RAKE_D
+                val kb = cam.ppf(perY[i])
+                val ko = cam.ppf(oy)
+                rakeVerts[i * 4] = cam.px(perX[i], perY[i])
+                rakeVerts[i * 4 + 1] = cam.py(perY[i]) - wallH * kb
+                rakeVerts[i * 4 + 2] = cam.px(ox, oy)
+                rakeVerts[i * 4 + 3] = cam.py(oy) - (wallH + RAKE_H) * ko
+                rakeTex[i * 4] = perU[i] * STAND_PX
+                rakeTex[i * 4 + 1] = th
+                rakeTex[i * 4 + 2] = perU[i] * STAND_PX
+                rakeTex[i * 4 + 3] = 0f
             }
+            var ic = 0
+            for (i in 0 until perN - 1) {
+                val my = (perY[i] + perY[i + 1]) * 0.5f
+                if (my > cam.y + 30f) continue
+                val a = (2 * i).toShort()
+                val b = (2 * i + 1).toShort()
+                val c = (2 * i + 2).toShort()
+                val d = (2 * i + 3).toShort()
+                rakeIdx[ic++] = a; rakeIdx[ic++] = b; rakeIdx[ic++] = c
+                rakeIdx[ic++] = c; rakeIdx[ic++] = b; rakeIdx[ic++] = d
+            }
+            if (ic > 0) canvas.drawVertices(Canvas.VertexMode.TRIANGLES, perN * 2, rakeVerts, 0, rakeTex, 0, null, 0, rakeIdx, 0, ic, sidePaint)
         }
         var bottom = cam.py(-Rink.HALF_W) - wallH * cam.ppf(-Rink.HALF_W) + 2f
         for (l in layers) {

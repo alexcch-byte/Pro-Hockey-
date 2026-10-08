@@ -145,10 +145,19 @@ class CharacterArt(val pxPerFt: Float) {
                     stroke.color = p.color
                     c.drawLine(x1, y1, x2, y2, stroke)
                     if (p.kind == CAP && wpx > 5f) {
-                        stroke.strokeWidth = wpx * 0.3f
-                        stroke.color = lighten(p.color, 0.38f)
-                        val o = wpx * 0.16f
-                        c.drawLine(x1 - o, y1 - o * 0.7f, x2 - o, y2 - o * 0.7f, stroke)
+                        // Shaded underside, lit top and a thin rim light along the upper edge.
+                        stroke.strokeWidth = wpx * 0.38f
+                        stroke.color = darken(p.color, 0.6f)
+                        val so = wpx * 0.2f
+                        c.drawLine(x1 + so, y1 + so * 0.75f, x2 + so, y2 + so * 0.75f, stroke)
+                        stroke.strokeWidth = wpx * 0.28f
+                        stroke.color = lighten(p.color, 0.42f)
+                        val o = wpx * 0.17f
+                        c.drawLine(x1 - o, y1 - o * 0.9f, x2 - o, y2 - o * 0.9f, stroke)
+                        stroke.strokeWidth = max(1f, wpx * 0.08f)
+                        stroke.color = Color.argb(150, 255, 255, 255)
+                        val ro = wpx * 0.41f
+                        c.drawLine(x1 - ro, y1 - ro * 0.9f, x2 - ro, y2 - ro * 0.9f, stroke)
                     }
                 }
                 DISC -> {

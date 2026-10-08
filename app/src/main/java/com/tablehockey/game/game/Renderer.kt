@@ -87,8 +87,8 @@ class Renderer(private val density: Float) {
     private val glassSpiderwebFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(45, 220, 245, 255); style = Paint.Style.FILL }
 
     // ----- player paints
-    private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(60, 10, 20, 40) }
-    private val contactShadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(125, 4, 8, 16) }
+    private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(28, 10, 20, 40) }
+    private val contactShadow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(70, 4, 8, 16) }
     private val torsoPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val bodyOutline = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 0.16f; color = Color.parseColor("#0F172A") }
     private val yokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
@@ -532,6 +532,7 @@ class Renderer(private val density: Float) {
         }
         if (!isPond) art.drawWalls(canvas, camera)
         drawIceDynamic(canvas, world)
+        drawNets(canvas)
         drawObjects(canvas, world, localTeam, isPond)
         drawGlassShards(canvas, world)
         if (isPond) drawSnow(canvas)
@@ -570,8 +571,8 @@ class Renderer(private val density: Float) {
         }
         if (world.phase == Phase.FACEOFF) {
             val r = 2.2f + 0.6f * sin(animTime * 8f)
-            faceoffPulse.alpha = 200
-            faceoffPulse.strokeWidth = 0.4f * camera.ppf(world.faceoffY)
+            faceoffPulse.alpha = 140
+            faceoffPulse.strokeWidth = 0.25f * camera.ppf(world.faceoffY)
             groundOval(canvas, world.faceoffX, world.faceoffY, r, faceoffPulse)
         }
         if (world.phase == Phase.GOAL) {
@@ -588,6 +589,85 @@ class Renderer(private val density: Float) {
     }
 
     private val signs = floatArrayOf(-1f, 1f)
+
+    // ----- 3D goal cages, drawn per frame through the projection
+    private val np = FloatArray(16)
+    private val netLines = FloatArray(4 * 40)
+    private val netFace = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(80, 236, 242, 248); style = Paint.Style.FILL }
+    private val netGrid = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(120, 120, 130, 145); style = Paint.Style.STROKE; strokeWidth = 1f }
+    private val netTube = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#D7263D"); style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+    private val netTubeLight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(150, 255, 190, 190); style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
+
+    private fun proj3(i: Int, x: Float, y: Float, z: Float) {
+        np[i * 2] = camera.px(x, y)
+        np[i * 2 + 1] = camera.py(y) - z * camera.ppf(y)
+    }
+
+    private fun faceQuad(canvas: Canvas, a: Int, b: Int, c: Int, d: Int) {
+        tmpPath.reset()
+        tmpPath.moveTo(np[a * 2], np[a * 2 + 1])
+        tmpPath.lineTo(np[b * 2], np[b * 2 + 1])
+        tmpPath.lineTo(np[c * 2], np[c * 2 + 1])
+        tmpPath.lineTo(np[d * 2], np[d * 2 + 1])
+        tmpPath.close()
+        canvas.drawPath(tmpPath, netFace)
+    }
+
+    /** Adds mesh lines across a face whose corners a, b, c, d are in cyclic order; returns the new write index. */
+    private fun netGridLines(start: Int, a: Int, b: Int, c: Int, d: Int, nu: Int, nv: Int): Int {
+        var n = start
+        for (t in 1 until nu) {
+            val f = t / nu.toFloat()
+            netLines[n++] = np[a * 2] + (np[b * 2] - np[a * 2]) * f
+            netLines[n++] = np[a * 2 + 1] + (np[b * 2 + 1] - np[a * 2 + 1]) * f
+            netLines[n++] = np[d * 2] + (np[c * 2] - np[d * 2]) * f
+            netLines[n++] = np[d * 2 + 1] + (np[c * 2 + 1] - np[d * 2 + 1]) * f
+        }
+        for (t in 1 until nv) {
+            val f = t / nv.toFloat()
+            netLines[n++] = np[a * 2] + (np[d * 2] - np[a * 2]) * f
+            netLines[n++] = np[a * 2 + 1] + (np[d * 2 + 1] - np[a * 2 + 1]) * f
+            netLines[n++] = np[b * 2] + (np[c * 2] - np[b * 2]) * f
+            netLines[n++] = np[b * 2 + 1] + (np[c * 2 + 1] - np[b * 2 + 1]) * f
+        }
+        return n
+    }
+
+    private fun tube(canvas: Canvas, a: Int, b: Int) {
+        canvas.drawLine(np[a * 2], np[a * 2 + 1], np[b * 2], np[b * 2 + 1], netTube)
+    }
+
+    /** Both goal cages: back netting, side panels, top, then the red frame. The goalie is drawn after. */
+    private fun drawNets(canvas: Canvas) {
+        val hw = Rink.NET_HALF_W
+        val h = 4.2f
+        val hb = 3.0f
+        for (e in signs) {
+            val gx = e * Rink.GOAL_LINE_X
+            val bx = e * (Rink.GOAL_LINE_X + Rink.NET_DEPTH)
+            proj3(0, gx, -hw, 0f); proj3(1, gx, -hw, h)
+            proj3(2, gx, hw, 0f); proj3(3, gx, hw, h)
+            proj3(4, bx, -hw, 0f); proj3(5, bx, -hw, hb)
+            proj3(6, bx, hw, 0f); proj3(7, bx, hw, hb)
+            faceQuad(canvas, 4, 5, 7, 6)
+            faceQuad(canvas, 0, 1, 5, 4)
+            faceQuad(canvas, 1, 3, 7, 5)
+            faceQuad(canvas, 2, 3, 7, 6)
+            var n = netGridLines(0, 4, 5, 7, 6, 7, 4)
+            n = netGridLines(n, 0, 1, 5, 4, 5, 4)
+            n = netGridLines(n, 1, 3, 7, 5, 6, 4)
+            n = netGridLines(n, 2, 3, 7, 6, 5, 4)
+            canvas.drawLines(netLines, 0, n, netGrid)
+            val k = camera.ppf(0f)
+            netTube.strokeWidth = 0.42f * k
+            tube(canvas, 4, 5); tube(canvas, 6, 7); tube(canvas, 5, 7)
+            tube(canvas, 0, 4); tube(canvas, 2, 6); tube(canvas, 4, 6)
+            tube(canvas, 1, 5); tube(canvas, 3, 7)
+            tube(canvas, 0, 1); tube(canvas, 2, 3); tube(canvas, 1, 3)
+            netTubeLight.strokeWidth = 0.12f * k
+            canvas.drawLine(np[2], np[3] - 0.1f * k, np[6], np[7] - 0.1f * k, netTubeLight)
+        }
+    }
 
     /** The static top-down rink, drawn once into the bake bitmap in world feet. */
     private fun drawRinkStatic(canvas: Canvas, world: World) {
@@ -620,10 +700,10 @@ class Renderer(private val density: Float) {
         canvas.drawLine(0f, -Rink.HALF_W, 0f, Rink.HALF_W, centerLine)
 
         logoPaint.color = world.teams[0].info.primary
-        logoPaint.alpha = 60
+        logoPaint.alpha = 34
         canvas.drawCircle(0f, 0f, 10f, logoPaint)
         logoText.color = world.teams[0].info.primary
-        logoText.alpha = 120
+        logoText.alpha = 70
         canvas.drawText(world.teams[0].info.abbr, 0f, 2.6f, logoText)
         canvas.drawCircle(0f, 0f, Rink.FACEOFF_R, circleBlue)
         canvas.drawCircle(0f, 0f, 1f, dotBlue)
@@ -651,21 +731,6 @@ class Renderer(private val density: Float) {
             canvas.drawArc(tmpRect, start, 180f, false, circleRed)
             canvas.drawLine(gx, -11f, e * Rink.HALF_L, -14f, trapezoid)
             canvas.drawLine(gx, 11f, e * Rink.HALF_L, 14f, trapezoid)
-            val backX = e * (Rink.GOAL_LINE_X + Rink.NET_DEPTH)
-            tmpRect.set(min(gx, backX), -Rink.NET_HALF_W, max(gx, backX), Rink.NET_HALF_W)
-            canvas.drawRect(tmpRect, netFill)
-            var mx = tmpRect.left
-            while (mx <= tmpRect.right) { canvas.drawLine(mx, tmpRect.top, mx, tmpRect.bottom, netMesh); mx += 0.6f }
-            var my = tmpRect.top
-            while (my <= tmpRect.bottom) { canvas.drawLine(tmpRect.left, my, tmpRect.right, my, netMesh); my += 0.6f }
-            tmpPath.reset()
-            tmpPath.moveTo(gx, -Rink.NET_HALF_W)
-            tmpPath.lineTo(backX, -Rink.NET_HALF_W)
-            tmpPath.lineTo(backX, Rink.NET_HALF_W)
-            tmpPath.lineTo(gx, Rink.NET_HALF_W)
-            canvas.drawPath(tmpPath, netFrame)
-            canvas.drawCircle(gx, -Rink.GOAL_HALF_W, Rink.POST_R, postPaint)
-            canvas.drawCircle(gx, Rink.GOAL_HALF_W, Rink.POST_R, postPaint)
         }
         canvas.restore()
 
@@ -946,8 +1011,9 @@ class Renderer(private val density: Float) {
         val cx = camera.px(s.x, s.y)
         val cy = camera.py(s.y)
         val r = s.radius * 1.15f * BODY_SCALE * k
-        ovalPx(canvas, cx + 0.35f * k, cy + 0.2f * k, r, shadowPaint)
-        ovalPx(canvas, cx, cy + 0.1f * k, r * 0.7f, contactShadow)
+        ovalPx(canvas, cx + 0.25f * k, cy + 0.12f * k, r * 0.95f, shadowPaint)
+        ovalPx(canvas, cx + 0.2f * k, cy + 0.1f * k, r * 0.68f, shadowPaint)
+        ovalPx(canvas, cx + 0.12f * k, cy + 0.06f * k, r * 0.42f, contactShadow)
     }
 
     private fun drawBillboard(canvas: Canvas, ch: CharacterArt, bmp: Bitmap, sx: Float, sy: Float, scale: Float) {

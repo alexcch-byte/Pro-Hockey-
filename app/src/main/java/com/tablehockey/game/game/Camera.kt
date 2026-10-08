@@ -32,9 +32,9 @@ class Camera {
         /** Feet of rink length visible across the screen at the focus depth. */
         const val VISIBLE_WIDTH_FT = 88f
         /** Vertical foreshortening of the ice plane. */
-        const val VK = 0.80f
+        const val VK = 0.62f
         /** Perspective strength per foot of depth. */
-        const val PERSP = 0.011f
+        const val PERSP = 0.016f
         val WORLD_HALF_W = Rink.HALF_L + Rink.WORLD_MARGIN
         val WORLD_HALF_H = Rink.HALF_W + Rink.WORLD_MARGIN
     }
@@ -86,7 +86,7 @@ class Camera {
     }
 
     private fun clampX(v: Float): Float {
-        val lim = Rink.HALF_L - 40f
+        val lim = Rink.HALF_L - 20f
         return v.coerceIn(-lim, lim)
     }
 
