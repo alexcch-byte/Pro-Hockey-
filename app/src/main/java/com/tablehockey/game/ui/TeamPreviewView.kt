@@ -119,12 +119,6 @@ class TeamPreviewView @JvmOverloads constructor(ctx: Context, attrs: AttributeSe
         skaterBmp = TeamArt.skaterBitmap(st, t.abbr, sPx)
         goalieBmp = TeamArt.goalieBitmap(st, t.abbr, gPx)
 
-        // Club crest painted on the ice (centre-ice logo), seen at a shallow angle behind the figures.
-        val r = w * 0.2f
-        val side = (r * 2.6f).toInt().coerceAtLeast(8)
-        val cb = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
-        TeamArt.drawCrest(Canvas(cb), side / 2f, side / 2f - r * 0.05f, r, st, t.abbr)
-        crestBmp = cb
     }
 
     override fun onDraw(c: Canvas) {
@@ -155,14 +149,6 @@ class TeamPreviewView @JvmOverloads constructor(ctx: Context, attrs: AttributeSe
         oval.set(skaterCx - skaterUnit * 22f, skaterFeet - h * 0.014f, skaterCx + skaterUnit * 26f, skaterFeet + h * 0.022f)
         c.drawOval(oval, p)
 
-        // centre-ice crest decal, squashed to lie on the ice (under the figures)
-        crestBmp?.let {
-            c.save()
-            c.translate(w * 0.5f, h * 0.86f)
-            c.scale(1f, 0.26f)
-            c.drawBitmap(it, -it.width / 2f, -it.height / 2f, decalPaint)
-            c.restore()
-        }
         goalieBmp?.let { c.drawBitmap(it, goalieCx - it.width / 2f, goalieFeet - TeamArt.FEET_UNITS * goalieUnit, bmpPaint) }
         skaterBmp?.let { c.drawBitmap(it, skaterCx - it.width / 2f, skaterFeet - TeamArt.FEET_UNITS * skaterUnit, bmpPaint) }
 

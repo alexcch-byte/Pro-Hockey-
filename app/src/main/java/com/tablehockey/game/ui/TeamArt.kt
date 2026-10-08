@@ -664,12 +664,10 @@ object TeamArt {
         c.clipPath(hips)
         c.drawRect(-14f, 57f, 17f, 68f, lin(0f, 57f, 0f, 67f, 0xA0000000.toInt(), NONE))
         c.restore()
-        ao(c, -4f, 39f, 7f, 0x90)
-        ao(c, 10f, 40f, 5f, 0x70)
 
         // ---- near arm, bent back, then the shoulder cap on top
         limb(c, -8f, 31f, 11f, -12f, 45f, 9.2f, st.primary)
-        limb(c, -12f, 45f, 9.2f, 4f, 49.5f, 7.4f, st.primary)
+        limb(c, -12f, 45f, 9.2f, 5.6f, 49.8f, 7.4f, st.primary)
         ao(c, -10f, 44f, 3.6f, 0x50)
         band(c, -12f, 45f, 9.2f, 4f, 49.5f, 7.4f, 0.64f, 0.78f, st.trim)
         band(c, -12f, 45f, 9.2f, 4f, 49.5f, 7.4f, 0.78f, 0.95f, st.secondary)
@@ -697,8 +695,9 @@ object TeamArt {
         c.drawCircle(40f, 98.6f, 2.2f, rad(39.2f, 97.8f, 3f, 0xFF4B515A.toInt(), 0xFF0B0B0D.toInt()))
 
         // ---- hands on top so they visibly grip the shaft
-        drawMitt(c, 13.5f, 63f, -32f, st, true)
-        drawMitt(c, 4.2f, 49.5f, -32f, st, false)
+        // each mitt is rotated so its cuff faces the forearm it grips from
+        drawMitt(c, 13.5f, 63f, 15f, st, true)
+        drawMitt(c, 5.2f, 49.8f, -74f, st, false)
         c.restore()
     }
 
@@ -711,9 +710,11 @@ object TeamArt {
         path.reset()
         path.moveTo(-10f, -16f)
         path.quadTo(0f, -18f, 11f, -16f)
-        path.cubicTo(15f, -14f, 14.5f, -4f, 15.2f, 16f)
+        path.cubicTo(15f, -14f, 14.5f, -8f, 12.6f, 3f)       // chest -> waist (pinched)
+        path.cubicTo(12.2f, 8f, 15.6f, 12f, 15.2f, 16f)      // waist -> hip (flares out)
         path.quadTo(1f, 19f, -13.2f, 16f)
-        path.cubicTo(-12.5f, -4f, -13.5f, -13f, -10f, -16f)
+        path.cubicTo(-13.4f, 12f, -10.4f, 8f, -10.8f, 3f)
+        path.cubicTo(-12.5f, -8f, -13.5f, -13f, -10f, -16f)
         path.close()
         clip.set(path)
         c.drawPath(clip, lin(0f, -16f, 0f, 17f, lighten(st.primary, lift), shade(st.primary, 0.8f)))
@@ -791,6 +792,13 @@ object TeamArt {
         c.drawPath(path, stroke(withAlpha(rimColor(h), 210), 2.6f))
         c.restore()
         c.drawPath(poly(-1.5f, 11.8f, 14.2f, 11.4f, 15.2f, 13.2f, -2.2f, 13.6f), color(0x40000000))
+        // ear guard on top of the shell: lit earpiece with an ear hole and a chin-strap line
+        rect.set(-3.8f, 9f, 2.6f, 19.6f)
+        c.drawOval(rect, lit(-3f, 9f, 0f, 19.6f, 6.4f, shade(h, 0.9f)))
+        c.drawOval(rect, stroke(shade(h, 0.35f), 0.5f))
+        rect.set(-1.8f, 12.2f, 1.2f, 16.4f)
+        c.drawOval(rect, color(0x88000000.toInt()))
+        c.drawLine(2.2f, 17.4f, 6.5f, 21.2f, stroke(shade(h, 0.35f), 0.8f))
         path.reset(); path.moveTo(6.5f, -0.6f); path.quadTo(9f, 4f, 8.6f, 10.6f)
         c.drawPath(path, stroke(st.trim, 2.1f))
         c.save()
@@ -879,6 +887,11 @@ object TeamArt {
         val pants = if (darkKit) lighten(shade(st.primary, 0.85f), 0.1f) else shade(st.primary, 0.55f)
         rect.set(-16f, 46f, 16f, 61f)
         c.drawRoundRect(rect, 5f, 5f, lit(-16f, 46f, 16f, 61f, 24f, pants))
+        // thighs: pants run down into the pad tops so legs read as attached to the body
+        for (s in intArrayOf(-1, 1)) {
+            rect.set(s * 10.5f - 8.2f, 56f, s * 10.5f + 8.2f, 68f)
+            c.drawRoundRect(rect, 3f, 3f, lit(s * 10.5f, 56f, s * 10.5f + 1f, 68f, 16f, pants))
+        }
 
         // goalie stick: shaft from the blocker hand to a wide paddle on the ice
         limb(c, -31f, 56f, 2.2f, -27f, 82f, 2.2f, 0xFF30343A.toInt())
@@ -889,15 +902,13 @@ object TeamArt {
 
         // arms behind the chest protector so its arches overlap the shoulders
         limb(c, 21f, 31f, 14f, 30f, 45f, 11.5f, shade(st.primary, 0.85f))
-        limb(c, 30f, 45f, 11.5f, 31f, 55f, 9f, shade(st.primary, 0.85f))
+        limb(c, 30f, 45f, 11.5f, 32.5f, 57f, 10f, shade(st.primary, 0.85f))
         limb(c, -21f, 31f, 14f, -29f, 45f, 11.5f, st.primary)
-        limb(c, -29f, 45f, 11.5f, -31f, 55f, 9f, st.primary)
+        limb(c, -29f, 45f, 11.5f, -31.5f, 57.5f, 10f, st.primary)
         band(c, -29f, 45f, 11.5f, -31f, 55f, 9f, 0.5f, 0.75f, st.secondary)
         band(c, 30f, 45f, 11.5f, 31f, 55f, 9f, 0.5f, 0.75f, shade(st.secondary, 0.85f))
 
         drawJerseyTorso(c, st, abbr, 1.22f)
-        ao(c, -17f, 38f, 6f, 0x80)
-        ao(c, 17f, 38f, 6f, 0x70)
 
         // blocker (on the stick hand) and catcher, rotated with the forearms
         c.save()

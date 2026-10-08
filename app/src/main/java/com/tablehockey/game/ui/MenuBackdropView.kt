@@ -83,10 +83,10 @@ class MenuBackdropView @JvmOverloads constructor(ctx: Context, attrs: AttributeS
         if (height <= 0) return
         heroBmp?.recycle()
         goalieBmp?.recycle()
-        val px = (height * 0.68f).toInt().coerceAtLeast(16)
+        val px = (height * 0.62f).toInt().coerceAtLeast(16)
         heroUnit = px / 100f
         heroBmp = TeamArt.skaterBitmap(style, team.abbr, px)
-        val gpx = (px * 0.62f).toInt().coerceAtLeast(16)
+        val gpx = (px * 0.6f).toInt().coerceAtLeast(16)
         goalieUnit = gpx / 100f
         goalieBmp = TeamArt.goalieBitmap(style, team.abbr, gpx)
     }
@@ -169,14 +169,14 @@ class MenuBackdropView @JvmOverloads constructor(ctx: Context, attrs: AttributeS
         p.shader = null
 
         // hero pair (cached bitmaps): goalie behind and smaller, skater in front, floor shadows
-        val gcx = w * 0.20f
+        val gcx = w * 0.17f
         val gfeet = h * 0.88f
         val gu = goalieUnit
         p.color = 0x55102A44
         oval.set(gcx - gu * 36f, gfeet - gu * 3f, gcx + gu * 38f, gfeet + gu * 4f)
         c.drawOval(oval, p)
         goalieBmp?.let { c.drawBitmap(it, gcx - it.width / 2f, gfeet - TeamArt.FEET_UNITS * gu, bmpPaint) }
-        val cx = w * 0.40f
+        val cx = w * 0.45f
         val feet = h * 0.95f
         val hu = heroUnit
         p.color = 0x66102A44
