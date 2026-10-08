@@ -756,7 +756,7 @@ object TeamArt {
         // neck
         limb(c, 5f, 23.5f, 6.6f, 5f, 28f, 7.6f, SKIN)
         c.save()
-        c.translate(6f, 22f)
+        c.translate(6f, 24.4f)
         c.scale(1.22f, 1.22f)
         c.translate(-6f, -22f)
         // chin shadow on the neck

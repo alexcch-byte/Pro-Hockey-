@@ -62,7 +62,7 @@ class MenuBackdropView @JvmOverloads constructor(ctx: Context, attrs: AttributeS
         bandShader = LinearGradient(0f, h * 0.30f, 0f, horizon, 0x00000000, 0xCC03060B.toInt(), Shader.TileMode.CLAMP)
         coneShader = LinearGradient(0f, 0f, 0f, horizon + h * 0.12f, 0x30FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
         vignetteShader = LinearGradient(0f, 0f, 0f, h * 0.2f, 0xAA000000.toInt(), 0x00000000, Shader.TileMode.CLAMP)
-        scrimShader = LinearGradient(0f, 0f, w * 0.62f, 0f, 0xC003060B.toInt(), 0x0003060B, Shader.TileMode.CLAMP)
+        scrimShader = LinearGradient(0f, 0f, w * 0.7f, 0f, 0xDD03060B.toInt(), 0x0003060B, Shader.TileMode.CLAMP)
         buildHero()
         // crowd: seeded specks in the upper wall
         val rnd = Random(7)
@@ -163,6 +163,11 @@ class MenuBackdropView @JvmOverloads constructor(ctx: Context, attrs: AttributeS
         }
         p.style = Paint.Style.FILL
 
+        // left scrim keeps the title block readable over the crowd (drawn under the figures)
+        p.shader = scrimShader
+        c.drawRect(0f, 0f, w * 0.62f, h * 0.6f, p)
+        p.shader = null
+
         // hero pair (cached bitmaps): goalie behind and smaller, skater in front, floor shadows
         val gcx = w * 0.20f
         val gfeet = h * 0.88f
@@ -178,11 +183,6 @@ class MenuBackdropView @JvmOverloads constructor(ctx: Context, attrs: AttributeS
         oval.set(cx - hu * 30f, feet - hu * 3f, cx + hu * 36f, feet + hu * 4f)
         c.drawOval(oval, p)
         heroBmp?.let { c.drawBitmap(it, cx - it.width / 2f, feet - TeamArt.FEET_UNITS * hu, bmpPaint) }
-
-        // left scrim keeps the title block readable over the crowd
-        p.shader = scrimShader
-        c.drawRect(0f, 0f, w * 0.62f, h * 0.6f, p)
-        p.shader = null
 
         // top vignette
         p.shader = vignetteShader
