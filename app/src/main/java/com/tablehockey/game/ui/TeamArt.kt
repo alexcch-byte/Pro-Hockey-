@@ -41,6 +41,8 @@ object TeamArt {
     private val text = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         typeface = Typeface.create("sans-serif-condensed", Typeface.BOLD)
         textAlign = Paint.Align.CENTER
+        isSubpixelText = true
+        isLinearText = true
     }
     private val path = Path()
     private val tpath = Path()
@@ -332,7 +334,7 @@ object TeamArt {
     }
 
     private fun drawGlove(c: Canvas, gx: Float, gy: Float, st: TeamStyle, s: Int) {
-        val base = shade(st.secondary, 0.62f)
+        val base = shade(st.secondary, 0.88f)
         path.reset()
         path.moveTo(gx - 4.2f, gy - 3f)
         path.cubicTo(gx - 5.4f, gy + 2f, gx - 4.4f, gy + 7f, gx - 1.5f, gy + 8.4f)

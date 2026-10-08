@@ -62,14 +62,14 @@ class MenuBackdropView @JvmOverloads constructor(ctx: Context, attrs: AttributeS
         buildHero()
         // crowd: seeded specks in the upper wall
         val rnd = Random(7)
-        val n = 420
+        val n = 1100
         crowd = FloatArray(n * 3)
         crowdColors = IntArray(n)
         val palette = intArrayOf(0xFFC8323C.toInt(), 0xFFE8D2B4.toInt(), 0xFF2E5FA8.toInt(), 0xFFF2B84B.toInt(), 0xFF3B4A5E.toInt())
         for (i in 0 until n) {
             crowd[i * 3] = rnd.nextFloat() * w
             crowd[i * 3 + 1] = h * (0.08f + 0.3f * rnd.nextFloat())
-            crowd[i * 3 + 2] = h * (0.006f + 0.008f * rnd.nextFloat())
+            crowd[i * 3 + 2] = h * (0.0022f + 0.0035f * rnd.nextFloat())
             crowdColors[i] = palette[rnd.nextInt(palette.size)]
         }
     }
@@ -95,7 +95,7 @@ class MenuBackdropView @JvmOverloads constructor(ctx: Context, attrs: AttributeS
         p.alpha = 255
         for (i in crowdColors.indices) {
             p.color = crowdColors[i]
-            p.alpha = 150
+            p.alpha = 190
             c.drawCircle(crowd[i * 3], crowd[i * 3 + 1], crowd[i * 3 + 2], p)
         }
         p.alpha = 255
