@@ -7,7 +7,7 @@ import com.tablehockey.game.model.TeamInfo
 enum class Phase { FACEOFF, PLAY, WHISTLE, GOAL, PERIOD_END, GAME_OVER }
 
 /** One-shot things that happened this tick; the view turns them into sounds / effects. */
-enum class GameEvent { SHOT, PASS, BOARDS, POST, GOAL, HIT, POKE, SAVE, WHISTLE, HORN, FACEOFF_DROP, PICKUP, PERIOD_END, GAME_OVER, FACEOFF_SET, ONE_TIMER, PENALTY, ON_FIRE, DEKE, GLASS_SHATTER, GOALIE_SAVE_MOVE, ICING }
+enum class GameEvent { SHOT, PASS, BOARDS, POST, GOAL, HIT, POKE, SAVE, WHISTLE, HORN, FACEOFF_DROP, PICKUP, PERIOD_END, GAME_OVER, FACEOFF_SET, ONE_TIMER, PENALTY, ON_FIRE, DEKE, GLASS_SHATTER, GOALIE_SAVE_MOVE, ICING, OFFSIDE }
 
 
 /** Per-frame command state from a human controller (touch or network). */
@@ -20,6 +20,8 @@ class PlayerInput {
     var pass = false
     var hit = false
     var deke = false
+    /** Flick direction hint for a deke: +1 / -1 lateral side, 0 = host picks randomly. */
+    var dekeSign = 0f
 
     val moveMagnitude: Float get() = kotlin.math.hypot(moveX, moveY)
 
@@ -29,12 +31,13 @@ class PlayerInput {
         pass = false
         hit = false
         deke = false
+        dekeSign = 0f
     }
 
     fun copyFrom(o: PlayerInput) {
         moveX = o.moveX; moveY = o.moveY
         shootHeld = o.shootHeld; shootRelease = o.shootRelease; shootCharge = o.shootCharge
-        pass = o.pass; hit = o.hit; deke = o.deke
+        pass = o.pass; hit = o.hit; deke = o.deke; dekeSign = o.dekeSign
     }
 }
 

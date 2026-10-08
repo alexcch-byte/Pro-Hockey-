@@ -28,6 +28,7 @@ struct MatchConfig: Codable {
     let soundEnabled: Bool
     let musicEnabled: Bool
     let arenaType: ArenaType
+    let isTournament: Bool
 
     init(
         mode: GameMode,
@@ -37,7 +38,8 @@ struct MatchConfig: Codable {
         aiDifficulty: AiDifficulty,
         soundEnabled: Bool,
         musicEnabled: Bool = true,
-        arenaType: ArenaType = .indoor
+        arenaType: ArenaType = .indoor,
+        isTournament: Bool = false
     ) {
         self.mode = mode
         self.homeTeam = homeTeam
@@ -47,6 +49,7 @@ struct MatchConfig: Codable {
         self.soundEnabled = soundEnabled
         self.musicEnabled = musicEnabled
         self.arenaType = arenaType
+        self.isTournament = isTournament
     }
 
     static func makeDefault() -> MatchConfig {
@@ -58,7 +61,8 @@ struct MatchConfig: Codable {
             aiDifficulty: .medium,
             soundEnabled: true,
             musicEnabled: true,
-            arenaType: .indoor
+            arenaType: .indoor,
+            isTournament: false
         )
     }
 }

@@ -95,6 +95,8 @@
                 android:layout_height="wrap_content"
                 android:text="SELECT YOUR CLUB" />
 
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/clubs_follow_league" android:textColor="@color/text_secondary" android:textSize="11sp" android:layout_marginTop="4dp" />
+
             <Spinner
                 android:id="@+id/spinnerSetupTeam"
                 android:layout_width="match_parent"

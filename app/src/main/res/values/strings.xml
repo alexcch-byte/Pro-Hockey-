@@ -24,6 +24,10 @@
 
     <string name="settings_title">Match Setup</string>
     <string name="settings_your_team">Your Team</string>
+    <string name="settings_league">LEAGUE</string>
+    <string name="league_timbits">TIMBITS</string>
+    <string name="league_nhl">NHL</string>
+    <string name="clubs_follow_league">Clubs follow the league chosen in Match Setup</string>
     <string name="settings_opponent">Opponent</string>
     <string name="settings_period_length">Period Length</string>
     <string name="settings_difficulty">Difficulty</string>
@@ -95,7 +99,7 @@
 
     <string name="htp_title">How to Play</string>
     <string name="htp_skate">SKATE</string>
-    <string name="htp_skate_body">Touch anywhere on the left half of the screen and drag. Your skater follows the stick in that direction. Let go to glide.</string>
+    <string name="htp_skate_body">Touch anywhere on the left half of the screen and drag. Your skater follows the stick in that direction. Let go to glide. With the puck, flick the stick quickly to deke past a defender.</string>
     <string name="htp_shoot">SHOOT</string>
     <string name="htp_shoot_body">Hold to wind up, release to fire. Push the stick up or down while you shoot to aim for a corner.
 Without the puck: poke-check the puck carrier.</string>
@@ -105,8 +109,8 @@ Without the puck: switch to the skater closest to the puck.</string>
     <string name="htp_hit">HIT</string>
     <string name="htp_hit_body">Tap to lunge into a body check. Knock the carrier down and the puck comes loose.</string>
     <string name="htp_rules">GAME FLOW</string>
-    <string name="htp_rules_body">Three periods on the clock, faceoffs after every whistle, goalies freeze pucks. Tied after three? Sudden-death overtime.</string>
-    <string name="htp_tip">The yellow ring marks the skater you control.</string>
+    <string name="htp_rules_body">Three periods on the clock, faceoffs after every whistle, goalies freeze pucks. Pick TIMBITS or NHL clubs under LEAGUE on Match Setup (Tournament and WiFi games use that choice). Offside: do not skate past the far blue line ahead of the puck, or play is stopped. Tied after three? Sudden-death overtime.</string>
+    <string name="htp_tip">The green ring marks the skater you control.</string>
     <string name="htp_done">Got it</string>
-    <string name="controls_help">Left side: drag anywhere to skate.\n\nSHOOT: hold to wind up, release to fire. Push the stick up or down while shooting to pick a corner. Without the puck it pokes at the carrier.\n\nPASS: sends the puck to the teammate in the direction you are pushing. Without the puck it switches to the skater nearest the puck.\n\nHIT: lunge into a body check and knock the carrier off the puck.\n\nThree periods, sudden-death overtime if tied.</string>
+    <string name="controls_help">Left side: drag anywhere to skate.\n\nSHOOT: hold to wind up, release to fire. Push the stick up or down while shooting to pick a corner. Without the puck it pokes at the carrier.\n\nPASS: sends the puck to the teammate in the direction you are pushing. Without the puck it switches to the skater nearest the puck.\n\nHIT: lunge into a body check and knock the carrier off the puck.\n\nDeke: with the puck, flick the stick quickly. It dodges sideways.\n\nThree periods, sudden-death overtime if tied.</string>
 </resources>

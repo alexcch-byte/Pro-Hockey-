@@ -7,7 +7,7 @@ enum Phase {
 /// One-shot things that happened this tick; the view turns them into sounds / effects.
 enum GameEvent {
     case shot, pass, boards, post, goal, hit, poke, save, whistle, horn, faceoffDrop, pickup, periodEnd, gameOver, faceoffSet
-    case oneTimer, penalty, onFire, deke, glassShatter, goalieSaveMove
+    case oneTimer, penalty, onFire, deke, glassShatter, goalieSaveMove, icing
 }
 
 /// Per-frame command state from a human controller (touch or network).
@@ -53,6 +53,45 @@ struct AiSettings {
     let goalieLeak: Float       // chance an AI-goalie save lets the puck through (five-hole)
     let goaliePadScale: Float   // size of the AI goalie's blocking area
     let aimAssist: Float        // 0..1 how strongly human shots steer to the open side
+    let seamPass: Float         // per decision tick: chance a carrier in the offensive zone looks for a better-placed open teammate
+    let tripChance: Float       // chance a successful poke check is called as tripping
+    let goalieLead: Float       // seconds of puck velocity the AI goalie anticipates
+
+    init(
+        speedMul: Float,
+        reaction: Float,
+        shotAccuracy: Float,
+        passAccuracy: Float,
+        shootTendency: Float,
+        pokeChance: Float,
+        hitChance: Float,
+        goalieSkill: Float,
+        coverChance: Float,
+        faceoffHumanBias: Float,
+        goalieLeak: Float,
+        goaliePadScale: Float,
+        aimAssist: Float,
+        seamPass: Float = 0.25,
+        tripChance: Float = 0.04,
+        goalieLead: Float = 0.12
+    ) {
+        self.speedMul = speedMul
+        self.reaction = reaction
+        self.shotAccuracy = shotAccuracy
+        self.passAccuracy = passAccuracy
+        self.shootTendency = shootTendency
+        self.pokeChance = pokeChance
+        self.hitChance = hitChance
+        self.goalieSkill = goalieSkill
+        self.coverChance = coverChance
+        self.faceoffHumanBias = faceoffHumanBias
+        self.goalieLeak = goalieLeak
+        self.goaliePadScale = goaliePadScale
+        self.aimAssist = aimAssist
+        self.seamPass = seamPass
+        self.tripChance = tripChance
+        self.goalieLead = goalieLead
+    }
 
     static func forDifficulty(_ d: AiDifficulty) -> AiSettings {
         switch d {
@@ -60,19 +99,22 @@ struct AiSettings {
             return AiSettings(
                 speedMul: 0.72, reaction: 0.6, shotAccuracy: 0.5, passAccuracy: 0.65, shootTendency: 0.45,
                 pokeChance: 0.18, hitChance: 0.06, goalieSkill: 0.5, coverChance: 0.15, faceoffHumanBias: 0.65,
-                goalieLeak: 0.3, goaliePadScale: 0.75, aimAssist: 1
+                goalieLeak: 0.3, goaliePadScale: 0.75, aimAssist: 1,
+                seamPass: 0.12, tripChance: 0.04, goalieLead: 0.04
             )
         case .medium:
             return AiSettings(
                 speedMul: 0.95, reaction: 0.28, shotAccuracy: 0.72, passAccuracy: 0.85, shootTendency: 0.7,
                 pokeChance: 0.55, hitChance: 0.35, goalieSkill: 0.9, coverChance: 0.3, faceoffHumanBias: 0.5,
-                goalieLeak: 0.1, goaliePadScale: 0.95, aimAssist: 0.5
+                goalieLeak: 0.1, goaliePadScale: 0.95, aimAssist: 0.5,
+                seamPass: 0.25, tripChance: 0.04, goalieLead: 0.09
             )
         case .hard:
             return AiSettings(
                 speedMul: 1.06, reaction: 0.15, shotAccuracy: 0.88, passAccuracy: 0.95, shootTendency: 0.85,
-                pokeChance: 0.75, hitChance: 0.55, goalieSkill: 1.05, coverChance: 0.35, faceoffHumanBias: 0.4,
-                goalieLeak: 0, goaliePadScale: 1.05, aimAssist: 0
+                pokeChance: 0.75, hitChance: 0.55, goalieSkill: 1.0, coverChance: 0.25, faceoffHumanBias: 0.4,
+                goalieLeak: 0, goaliePadScale: 1.05, aimAssist: 0,
+                seamPass: 0.4, tripChance: 0.04, goalieLead: 0.12
             )
         }
     }

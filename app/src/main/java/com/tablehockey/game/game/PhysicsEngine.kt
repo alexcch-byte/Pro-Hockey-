@@ -23,6 +23,8 @@ object PhysicsEngine {
 
     private val tmpPos = FloatArray(2)
     private val tmpNormal = FloatArray(2)
+    private val SIDES = intArrayOf(-1, 1)
+    private val POST_YS = floatArrayOf(-Rink.GOAL_HALF_W, Rink.GOAL_HALF_W)
 
     /**
      * Accelerates [s] toward the desired velocity and integrates. Facing turns
@@ -76,8 +78,8 @@ object PhysicsEngine {
                 s.vy -= dot * tmpNormal[1]
             }
         }
-        if (!s.isGoalie) {
-            for (e in intArrayOf(-1, 1)) {
+        if (!s.isGoalie || s.pulled) {
+            for (e in SIDES) {
                 val left = Rink.GOAL_LINE_X - 0.3f
                 val right = Rink.GOAL_LINE_X + Rink.NET_DEPTH + 0.3f
                 val ax = s.x * e
@@ -167,10 +169,10 @@ object PhysicsEngine {
 
         val r = Rink.PUCK_R
         val backX = Rink.GOAL_LINE_X + Rink.NET_DEPTH
-        for (e in intArrayOf(-1, 1)) {
+        for (e in SIDES) {
             val gx = e * Rink.GOAL_LINE_X
             // Posts.
-            for (py in floatArrayOf(-Rink.GOAL_HALF_W, Rink.GOAL_HALF_W)) {
+            for (py in POST_YS) {
                 val dx = puck.x - gx
                 val dy = puck.y - py
                 val d = hypot(dx, dy)
@@ -294,7 +296,7 @@ object PhysicsEngine {
     private fun keepCarriedPuckOutOfNets(puck: Puck, s: Skater) {
         val r = Rink.PUCK_R
         val backX = Rink.GOAL_LINE_X + Rink.NET_DEPTH
-        for (e in intArrayOf(-1, 1)) {
+        for (e in SIDES) {
             val ax = puck.x * e
             if (ax <= Rink.GOAL_LINE_X - r || ax >= backX + r || abs(puck.y) >= Rink.NET_HALF_W + r) continue
             val sax = s.x * e

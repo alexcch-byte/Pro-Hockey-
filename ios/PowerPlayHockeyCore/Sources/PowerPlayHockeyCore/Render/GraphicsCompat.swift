@@ -46,6 +46,18 @@ struct RadialGradientSpec {
     let centerX: CGFloat
     let centerY: CGFloat
     let radius: CGFloat
+    let cgGradient: CGGradient?
+
+    init(colors: [UInt32], stops: [CGFloat], centerX: CGFloat, centerY: CGFloat, radius: CGFloat) {
+        self.colors = colors
+        self.stops = stops
+        self.centerX = centerX
+        self.centerY = centerY
+        self.radius = radius
+        let cgColors = colors.map { HexColor.cgColor($0) } as CFArray
+        let colorSpace = CGColorSpaceCreateDeviceRGB()
+        self.cgGradient = CGGradient(colorsSpace: colorSpace, colors: cgColors, locations: stops)
+    }
 }
 
 /// Mutable paint bag, matching how Renderer.kt reuses a fixed set of Paint

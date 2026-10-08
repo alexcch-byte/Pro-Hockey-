@@ -93,6 +93,7 @@ class GameView @JvmOverloads constructor(
         networkClient = client
         configured = true
         localTeam = if (config.mode == GameMode.WIFI_CLIENT) 1 else 0
+        renderer.pullPillEnabled = config.mode != GameMode.WIFI_CLIENT
 
         if (config.mode != GameMode.WIFI_CLIENT) {
             createWorld(config.homeTeam, config.awayTeam, config.periodLengthSeconds)
@@ -139,7 +140,8 @@ class GameView @JvmOverloads constructor(
     }
 
     private fun createWorld(home: Int, away: Int, periodLength: Int) {
-        val w = World(TeamInfo.byIndex(home), TeamInfo.byIndex(away), periodLength)
+        val kits = TeamInfo.matchTeams(home, away)   // away/home road kit if the jerseys clash (same on host and guest)
+        val w = World(kits[0], kits[1], periodLength)
         w.isShootout = (config.mode == GameMode.SHOOTOUT)
         w.arenaType = config.arenaType
         w.isHumanTeam[0] = true
@@ -243,6 +245,10 @@ class GameView @JvmOverloads constructor(
                 return true
             }
             val w = world
+            if (w != null && renderer.isPullHit(event.x, event.y, w, localTeam)) {
+                togglePullGoalie()
+                return true
+            }
             if (w != null && renderer.isSwitchShooterHit(event.x, event.y, w, localTeam)) {
                 simulation?.cycleShootoutShooter(localTeam)
                 return true
@@ -465,6 +471,11 @@ class GameView @JvmOverloads constructor(
             networkClient?.send(NetCodec.inputJson(localInput))
             localInput.clearPulses()
         }
+        if (w.phase != Phase.GAME_OVER && matchOverReported) {
+            // Host started a rematch: allow the next game over to be reported.
+            matchOverReported = false
+            cancelPendingOver()
+        }
         checkMatchOver(w)
     }
 
@@ -508,8 +519,14 @@ class GameView @JvmOverloads constructor(
     }
 
     fun togglePullGoalie(): Boolean {
-        return simulation?.togglePullGoalie(localTeam) ?: false
+        val w = world ?: return false
+        val before = w.goaliePulled[localTeam]
+        val after = synchronized(w) { simulation?.togglePullGoalie(localTeam) ?: before }
+        if (after != before) soundManager?.playToggle()
+        return after
     }
+
+    fun isShootout(): Boolean = world?.isShootout ?: false
 
     fun isGoaliePulled(): Boolean {
         return world?.goaliePulled?.getOrNull(localTeam) ?: false

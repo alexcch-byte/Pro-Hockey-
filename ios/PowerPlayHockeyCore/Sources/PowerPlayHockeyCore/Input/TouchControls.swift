@@ -68,6 +68,8 @@ final class TouchControls: TouchControlsState {
     private var shootDownTime: Double = 0
 
     // Automatic Deke detection on rapid joystick movement / flick
+    var carrying = false
+    var dekeEnabled = true
     private var prevJoyTime: Double = 0
     private var prevJoyMx: Float = 0
     private var prevJoyMy: Float = 0
@@ -193,14 +195,14 @@ final class TouchControls: TouchControlsState {
         if dt >= 0.025 && dt <= 0.220 {
             let prevMag = hypot(prevJoyMx, prevJoyMy)
             let curMag = hypot(mx, my)
-            if curMag > 0.42 && currentTime > dekeCooldownUntil {
+            if carrying && dekeEnabled && curMag > 0.7 && currentTime > dekeCooldownUntil {
                 let deltaDist = hypot(mx - prevJoyMx, my - prevJoyMy)
                 let stickSpeed = deltaDist / Float(dt)
                 let dot: Float = (prevMag > 0.28 && curMag > 0.28)
                     ? (mx * prevJoyMx + my * prevJoyMy) / (curMag * prevMag)
                     : 1.0
-                let isSharpCut = (dot < 0.2 && prevMag > 0.38 && dt <= 0.180)
-                let isFastFlick = (stickSpeed > 7.5 && curMag > 0.5)
+                let isSharpCut = (dot < -0.35 && prevMag > 0.6 && dt <= 0.150)
+                let isFastFlick = (stickSpeed > 11.0 && curMag > 0.75)
                 if isSharpCut || isFastFlick {
                     lock.lock(); input.deke = true; lock.unlock()
                     dekeCooldownUntil = currentTime + 0.5
@@ -217,18 +219,14 @@ final class TouchControls: TouchControlsState {
     }
 
     func pointerUp(_ id: AnyHashable) {
-        // Explicit if/else rather than switching on the optional pointer
-        // properties: unambiguous regardless of how Optional's `~=` pattern
-        // matching resolves for AnyHashable, and there's no compiler here to
-        // check the alternative.
-        if joyPointer != nil && id == joyPointer! {
+        if let jp = joyPointer, id == jp {
             joyPointer = nil
             joyActive = false
             prevJoyTime = 0
             prevJoyMx = 0
             prevJoyMy = 0
             lock.lock(); input.moveX = 0; input.moveY = 0; lock.unlock()
-        } else if shootPointer != nil && id == shootPointer! {
+        } else if let sp = shootPointer, id == sp {
             shootPointer = nil
             let charge = currentCharge()
             shootDown = false
@@ -237,9 +235,9 @@ final class TouchControls: TouchControlsState {
             input.shootCharge = charge
             input.shootHeld = false
             lock.unlock()
-        } else if passPointer != nil && id == passPointer! {
+        } else if let pp = passPointer, id == pp {
             passPointer = nil; passDown = false
-        } else if hitPointer != nil && id == hitPointer! {
+        } else if let hp = hitPointer, id == hp {
             hitPointer = nil; hitDown = false
         }
     }

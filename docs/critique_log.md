@@ -341,3 +341,82 @@ No hard-coded 16:10 or 1280/1920 constants exist in Camera, Renderer, HudRendere
 4. **Nice-to-have:** stale `markId` on a skater that was human-controlled (harmless); delete `game/MatchResult.kt`; measure balance from the `PowerPlay: FINAL` logcat lines.
 
 Verdict: no gameplay, crash or network blocker in cycles 1-7; ship once blocker 1 (and 2 if release-signed) is handled.
+
+## Cycle 1 (builder)
+
+**A) DEKE button removed; deke is a stick flick.**
+- HudRenderer: removed the DEKE button, its ring and `dekeEnabled` write. TouchControls: removed button geometry, pointer, lockout/cooldown, `dekeCooldownFrac`. Network field `deke` and `GameEvent.DEKE` unchanged (ordinal order intact).
+- Flick detection rewritten (allocation-free ring buffer of 12 stick samples): while carrying and stick magnitude > 0.7, compares against any sample 40-150 ms old (prev magnitude > 0.35). Fires on (a) reversal: dot < -0.2, prev magnitude > 0.55, vector change > 1.0, or (b) swing: vector change > 1.05 with dot < 0.55 (covers sideways/diagonal flicks relative to travel). 550 ms cooldown. Slow steering never reaches a 1.0 change within 150 ms.
+- strings.xml: how-to skate text and controls_help mention "flick the stick quickly to deke". ControlsDiagramView/layouts had no DEKE text.
+
+**B) Critic bugs**
+- C1-1: `Skater.actsAsGoalie(world)` added (plus a `Skater.pulled` mirror set by Simulation each tick for physics/AI). Used in Simulation filters (faceoff placement, pass, passTo, pickups, contact, hit victim, contestPuck, control switching, icing) and AIController (`goalieNow()` helper). Role.G now has real offensive spots (point D / power play D) and a defensive spot (D-like); faceoff spot -10 ft. Pulled goalie is pushed out of nets by constrainSkater.
+- C1-2: after collisions playStep returns if phase != PLAY and re-reads `puck.carrier`.
+- C1-3: pickChaser/pickChasers skip inPenaltyBox.
+- C1-4: updateClient resets matchOverReported and calls cancelPendingOver when phase != GAME_OVER.
+- C1-5: `releasePenalty(quiet)`; quiet from scoreGoal, gameOver and match reset.
+- C1-6: togglePullGoalie no-ops in shootout / non-PLAY (returns current state); pull button hidden in shootout (`GameView.isShootout()`).
+- C1-7: inPenaltyBox opponents skipped in startHit, AI deke trigger, laneBlocked, carrierBehaviour pressure, contestPuck.
+- C1-8: loose-puck path substeps updatePuck + handleGoalies + tryPickups (1-4 steps, puck speed*dt/1.5 ft).
+- Allocation: `intArrayOf(-1,1)` / posts array hoisted to constants in PhysicsEngine.
+- Skipped: C1-9 (not trivial/unspecified). Not device-tested.
+
+## Cycle 2 (builder)
+
+Bugs
+- C2-1: HUD uses `actsAsGoalie(w)`, so a pulled goalie gets SHOOT/PASS/HIT labels; Renderer draws a pulled goalie with the skater sprite (jersey number visible), plus the new green marker.
+- C2-2: swing rule now needs delta > 1.3, delta/age > 8 per second, current magnitude > 0.6 (reversal needs > 0.7). Deke side follows the flick: `PlayerInput.dekeSign` = sign of cross(prev, cur) (0 if ambiguous, then random). Sent over the network as optional field `dd` next to `dk`; GameEvent ordinals untouched.
+- C2-3: `callPenalty` back to `offender.isGoalie` (a pulled goalie cannot draw a penalty).
+- C2-4: controls_help now says "Deke: with the puck, flick the stick quickly. It dodges sideways." (no button header). "Yellow ring" text changed to green.
+- C2-5: joystick ring flashes/expands for 220 ms when a flick deke fires (`TouchControls.dekeFlash()`, no allocation).
+
+Graphics
+- G2-1: controlled ring is green #22C55E, glow alpha 70, thicker outer ring, inner ring, bobbing triangle above the head; ControlsDiagramView updated.
+- G2-2: scoreboard plate centred (pills follow). New PULL GOALIE / GOALIE IN pill left of the pause button (Renderer.drawPullButton, hit-test in GameView.onTouchEvent -> `togglePullGoalie`, now under synchronized(world)). Hidden in shootout, after game over and for WIFI_CLIENT (no input path).
+- G2-3: `drawFaceoffBand` lower third (top sh*0.78) during FACEOFF and PERIOD_END: both crests, abbreviations, label and score; strings cached on phase/score change; skipped during intro, goal celebration and shootout.
+- G2-4: centre logo is a 12 ft disc alpha 140 with white ring, secondary inner ring and abbreviation; faceoff phase fills a 9 ft oval split by side in the teams' primary colours (alpha 90).
+- G2-7: button base alpha ~110, inner highlight, joystick knob always drawn (dim at rest).
+- G2-8: goal/penalty banner accent bar uses the scoring / penalised team primary colour. Skipped: crest on the penalty banner (not cheap with the existing layout).
+- Skipped per brief: G2-5, G2-6.
+
+## Offside (builder)
+
+- Simulation.checkOffside / callOffside / resetOffside (called after playStep while Phase.PLAY, not in shootout). Per team, a skater is marked when entirely past the attacking blue line (ax - radius > BLUE_LINE_X) while the puck is not past it; marks clear on tag-up (ax < blue line), on puck entry, and on every faceoff, drop, start().
+- Whistle when the puck crosses the blue line and the mover (carrier team, else lastTouchTeam) is the attacking team with any standing mark, or a marked skater picks up the puck (takePossession). Puck carried/played in by the defenders never triggers. Carrier, goalies (actsAsGoalie), and boxed skaters are never marked; a pulled goalie counts as a skater.
+- Result: banner "OFFSIDE", GameEvent.OFFSIDE appended last, stat counter (statsLine gets /Noff per team), faceoff at the neutral dot (attack-x 20) beside that blue line on the puck's lateral side.
+- AIController.think: non-carrier AI targets are clamped to blue line - 2.5 ft until the puck is in the zone. SoundManager handles OFFSIDE (whistle comes from WHISTLE). how-to string and CLAUDE.md updated.
+- Edge: a skater coasting beyond the line when the puck leaves the zone is marked immediately and must tag up (NHL-accurate); the game does not apply delayed-offside.
+
+## Sound (builder)
+
+Audit (GameEvent -> sound): SHOT/ONE_TIMER/PASS/POKE/PICKUP/FACEOFF_DROP/BOARDS/POST/SAVE/HIT/WHISTLE/PENALTY/HORN/GOAL/PERIOD_END/FACEOFF_SET/ON_FIRE/DEKE/GLASS_SHATTER/GOALIE_SAVE_MOVE all had sounds. Gaps: OFFSIDE and ICING had no sound of their own (only the shared long whistle); PICKUP had a single take with a thin spectrum (centroid 744 Hz); SAVE only 2 takes; the UI click was a loud square-wave chirp (-10.9 dB) ending on a cut (end level 0.035); no toggle sound for the pull-goalie pill. Measured faults in the existing set: step discontinuities at sample 0 (one_timer 0.35, puck_hit_3 0.44, pass_3 0.11, puck_hit 0.11), un-faded tails (whistle 0.028, penalty 0.013, button_click 0.035); no clipping, DC under 0.003, loop seams 0.015-0.023 (fine).
+
+Pipeline: scipy is not installed, so I ran make_sounds.py through a small numpy-only stand-in for scipy.signal (butter/lfilter/fftconvolve, kept outside the project). It reproduces the checked-in res/raw WAVs exactly (relative error 0.0000 on all 48 files), so regenerating is faithful. ios/ untouched.
+
+Changes (tools/make_sounds.py, then regenerated into res/raw):
+- save(): `declick()` on all one-shots (0.5 ms fade-in if the first sample is > 4% of peak, 4 ms fade-out if the tail is still audible). Loops/music excluded. Fixes the sample-0 steps and cut tails above.
+- sfx_shot: stick-flex whip layer (3.2 kHz+ hiss over the first 40 ms); centroid 6.1 kHz -> 6.7 kHz, level pins unchanged.
+- deke.wav: new lateral swish sweep with a stick tick; starts smoothly (first-sample 0.85 -> 0.016), level pinned to -12.5 dB (old -12.3). Old function still drawn so the shared random stream (glass, pad stack) is unchanged.
+- button_click.wav: soft round tick, pinned -14 dB (was -10.9 square chirp), end level 0.035 -> 0.002.
+- New: whistle_short.wav (double tweet, -11.5 dB vs long whistle -11.2), ui_toggle.wav (-14 dB), save_3.wav (blocker/pad knock, -17 dB), pickup_2/_3 (pickup now has stick-tap layer; 3 takes).
+- APK/res size growth is about 0.1 MB.
+
+Wiring (SoundManager): OFFSIDE and ICING play whistle_short; the WHISTLE event that follows within 200 ms skips the long whistle (tail still plays). PICKUP and SAVE rotate three takes. `playToggle()` is played by GameView.togglePullGoalie (HUD pill and pause-dialog button; the dialog's duplicate click removed). Menus outside GameActivity have no SoundManager, so no menu taps were added.
+
+## League (builder)
+
+- model/TeamInfo.kt: `LEAGUE_NHL`, 32 NHL clubs (current names incl. Utah Mammoth; approximate colours, text colour per club, no logos), `ALL = Timbits(0-19) + fictional pro(20-27) + NHL(28-59)`, `indicesFor(league)`. Timbits clubs and colours untouched. The fictional pro clubs stay in `ALL` (so indices, saved styles and favourites stay valid) but are no longer offered in the pickers.
+- model/Prefs.kt: `league()/setLeague()` persists the choice.
+- MatchSettingsActivity + activity_match_settings.xml: LEAGUE card (TIMBITS / NHL radio pair, same style as the other option rows, fits 1280x800 and 2.2:1 because it is a single full-width row in the existing scroll view). Switching repopulates both team spinners, defaults to the saved favourite if it is in that league else the first two teams; start maps picker positions back to `TeamInfo.ALL` indices.
+- WifiLobbyActivity and TournamentActivity: pickers show the league saved in Prefs (no toggle there); bracket draws its 7 opponents from the user team's league, so NHL uses 8 of the 32 randomly seeded (bracket size unchanged); Timbits path unchanged.
+- Network/Bluetooth: MatchConfig/NetCodec already carry indices into `TeamInfo.ALL`, which are identical on host and guest (same build), so a guest resolves the same club whatever its own league preference.
+- Customise Team lists every club (Timbits, fictional, NHL) via ALL and keeps working per club key (city|name is unique across the three groups).
+
+## C5 fixes (builder)
+
+- C5-1 kit clash: `TeamInfo.matchTeams(home, away)` (model/TeamInfo.kt) is used by `GameView.createWorld`, so single player, tournament games and both WiFi/Bluetooth sides build their clubs the same way. It measures `colourDistance` (redmean-weighted RGB) between the two primaries; below `CLASH_DISTANCE` (120) the away club gets `alternateKit`: swap primary/secondary, else white, else the lighter colour, taking the first candidate clear of the opponent (else the farthest), with secondary and text colour re-chosen for contrast. The result is a plain TeamInfo with new colours, so jerseys/sprite caches, scoreboard, faceoff band, crests and banners all pick it up. Pure function of the two club indices, so host and guest agree. Custom kits are respected: a custom away kit is never altered (the stock home club changes instead); if both are custom nothing changes.
+- C5-2: fictional club abbreviations renamed (DNP, CHB, MRY, VAO, BOH, MNT, DLL, TRP); style keys (city|name) unchanged.
+- C5-3: tournament picker defaults to the saved favourite if it is in the league, else the first club.
+- C5-4: caption "Clubs follow the league chosen in Match Setup" on the tournament and WiFi host pickers.
+- C5-5: the pull-goalie toggle sound plays only when the pulled state actually changed (pill and pause dialog share this path).
+- C5-6: `shortWhistleAt` starts at Long.MIN_VALUE / 2.

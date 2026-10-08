@@ -141,6 +141,9 @@ public final class HapticManager {
             case .goalieSaveMove:
                 self.mediumImpact?.impactOccurred(intensity: 0.85)
                 self.mediumImpact?.prepare()
+
+            case .icing:
+                break
             }
         }
         #endif

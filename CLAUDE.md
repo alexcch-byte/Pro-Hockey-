@@ -34,7 +34,7 @@ adb: `C:/Users/strid/AppData/Local/Android/Sdk/platform-tools/adb.exe`
 - `MainActivity`, `TournamentActivity` (bracket/series play; games run with `uncappedOvertime`), `MatchSettingsActivity` (teams, period length, difficulty, audio sliders),
   `HowToPlayActivity` + `ControlsDiagramView`, `WifiLobbyActivity` (WiFi and Bluetooth lobby),
   `GameActivity` (immersive, pause/match-over dialogs), `AudioSliders` (shared slider binding).
-- `model/`: `TeamInfo` (club list: 20 Calgary-area Timbits U7 clubs first, then 8 fictional pro clubs;
+- `model/`: `TeamInfo` (club list: 20 Calgary-area Timbits U7 clubs first, then 8 fictional pro clubs (not offered in pickers), then the 32 NHL clubs; `TeamInfo.ALL` indices are stable and are what MatchConfig/network/tournament carry; `Prefs.league` + `TeamInfo.indicesFor(league)` drive the LEAGUE toggle (TIMBITS/NHL) on Match Setup, WiFi lobby and Tournament; NHL crests are procedural, no real logos;
   colours are approximations), `MatchConfig` (Serializable intent extra), `Prefs` (sfx/music volume 0-100).
 - `game/`: the engine.
   - `Rink` geometry constants and board containment. Units are feet, origin at centre ice,
@@ -45,7 +45,8 @@ adb: `C:/Users/strid/AppData/Local/Android/Sdk/platform-tools/adb.exe`
   - `Simulation`: authoritative match flow (faceoffs, whistles, periods, sudden-death OT),
     possession, shooting (aim assist by difficulty), passing, poke/body checks, goalie saves
     (cover vs rebound, difficulty leak), scoring. `AiSettings` in `World.kt` holds all difficulty numbers (incl. `seamPass`, `tripChance`, `goalieLead`).
-    - Icing: `icingArmed`, 6 ft wave-off, short-handed team exempt; `GameEvent.ICING` is the last ordinal.
+    - Icing: `icingArmed`, 6 ft wave-off, short-handed team exempt; `GameEvent.OFFSIDE` is the last ordinal.
+    - Offside: `checkOffside()` (end of PLAY tick) marks attackers entirely past the attacking blue line while the puck is not; whistle when the puck enters the zone (not played in by the defenders) with a mark standing, or a marked skater touches the puck; tag-up clears it; faceoff at the neutral dot beside that blue line. AI clamps non-carrier targets behind the line until the puck is in.
     - Penalties: one active penalty at a time (`penaltyTeam/Timer/PlayerIndex`), 40 s of live-play clock, at most one
       +20 s extension for a second foul by the same team (a foul by the other team is treated as offsetting and not
       called), offender sits in the box at y +-44.5. AI skaters mostly only brush past away from the puck

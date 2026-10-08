@@ -2,6 +2,7 @@ package com.tablehockey.game.game
 
 import kotlin.math.abs
 import kotlin.math.atan2
+import kotlin.math.ceil
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.max
@@ -26,19 +27,24 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
     private var icingTeam = -1
 
     /** Match counters for balance measurement: [team * STAT_N + STAT_x], whistles at [STAT_WHISTLE_IDX]. */
-    private val stats = IntArray(2 * 5 + 1)
+    private val stats = IntArray(2 * 6 + 1)
+
+    // Offside tracking (host only). offsideMark[team*6+index]: skater is past the attacking blue line while the puck is not.
+    private val offsideMark = BooleanArray(12)
+    private val prevPuckAx = floatArrayOf(0f, 0f)
 
     /** Tournament matches must produce a winner: overtime is uncapped sudden death. */
     var uncappedOvertime = false
 
     companion object {
-        private const val STAT_N = 5
+        private const val STAT_N = 6
         private const val STAT_GOAL = 0
         private const val STAT_SOG = 1
         private const val STAT_SAVE = 2
         private const val STAT_PEN = 3
         private const val STAT_ICING = 4
-        private const val STAT_WHISTLE_IDX = 10
+        private const val STAT_OFFSIDE = 5
+        private const val STAT_WHISTLE_IDX = 12
         const val FACEOFF_HOLD = 1.4f
         const val WHISTLE_HOLD = 1.3f
         const val GOAL_HOLD = 3.2f
@@ -60,7 +66,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
 
     fun start() {
         // Clean per-match state so a rematch never starts with a pulled goalie, armed icing, old stats or a penalty.
-        if (world.penaltyTeam != -1) releasePenalty()
+        if (world.penaltyTeam != -1) releasePenalty(quiet = true)
         for (sk in world.allSkaters) sk.inPenaltyBox = false
         world.penaltyTeam = -1; world.penaltyTimer = 0f; world.penaltyPlayerIndex = -1
         penaltyExtended = false
@@ -71,6 +77,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         world.goaliePulled[1] = false
         icingArmed = false
         icingTeam = -1
+        resetOffside()
         java.util.Arrays.fill(stats, 0)
         if (world.isShootout) {
             world.shootoutRound = 1
@@ -140,9 +147,70 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
                 if (w.phaseTimer <= 0f) startNextPeriod()
             }
             Phase.GAME_OVER -> coastAll(dt)
-            Phase.PLAY -> playStep(dt, inputs)
+            Phase.PLAY -> {
+                playStep(dt, inputs)
+                if (w.phase == Phase.PLAY && !w.isShootout) checkOffside()
+            }
         }
         for (t in 0..1) inputs[t]?.clearPulses()
+    }
+
+    private fun resetOffside() {
+        java.util.Arrays.fill(offsideMark, false)
+        for (t in 0..1) prevPuckAx[t] = world.team(t).toAttackX(world.puck.x)
+    }
+
+    /**
+     * NHL-style offside: an attacker entirely past the attacking blue line before the puck is
+     * marked; if the puck then enters the zone (not carried/played in by the defenders) while
+     * anyone is still marked, play is whistled. Returning to the neutral zone clears the mark.
+     */
+    private fun checkOffside() {
+        val w = world
+        val p = w.puck
+        for (t in 0..1) {
+            val team = w.teams[t]
+            val pax = team.toAttackX(p.x)
+            val prev = prevPuckAx[t]
+            prevPuckAx[t] = pax
+            if (pax > Rink.BLUE_LINE_X) {
+                if (prev <= Rink.BLUE_LINE_X) {
+                    val c = p.carrier
+                    val mover = c?.team ?: p.lastTouchTeam
+                    if (mover == t) {
+                        for (s in team.skaters) {
+                            if (offsideMark[t * 6 + s.index]) { callOffside(team, s); return }
+                        }
+                    }
+                }
+                for (i in 0 until 6) offsideMark[t * 6 + i] = false
+            } else {
+                val carrier = p.carrier
+                for (s in team.skaters) {
+                    val k = t * 6 + s.index
+                    if (s.actsAsGoalie(w) || s.inPenaltyBox || s === carrier) { offsideMark[k] = false; continue }
+                    val ax = team.toAttackX(s.x)
+                    if (ax - s.radius > Rink.BLUE_LINE_X) offsideMark[k] = true
+                    else if (ax < Rink.BLUE_LINE_X) offsideMark[k] = false
+                }
+            }
+        }
+    }
+
+    private fun callOffside(team: Team, offender: Skater) {
+        val w = world
+        val p = w.puck
+        java.util.Arrays.fill(offsideMark, false)
+        icingArmed = false
+        stats[team.id * STAT_N + STAT_OFFSIDE]++
+        w.showBanner("OFFSIDE", team.info.name, 1.3f)
+        w.events.add(GameEvent.OFFSIDE)
+        val fx = team.toWorldX(Rink.NEUTRAL_DOT_X)
+        val fy = if (abs(p.y) < 1f) (if (rng.nextBoolean()) Rink.DOT_Y else -Rink.DOT_Y) else sign(p.y) * Rink.DOT_Y
+        p.vx = 0f; p.vy = 0f
+        p.shot = false
+        p.passTarget = null
+        startWhistle(fx, fy)
     }
 
     private fun coastAll(dt: Float) {
@@ -170,7 +238,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
                     s.place(0f, boxY, 0f)
                     continue
                 }
-                if (s.isGoalie) {
+                if (s.actsAsGoalie(w)) {
                     val gx = team.ownGoalX + a * 2.8f
                     s.place(gx, 0f, if (a > 0f) 0f else Math.PI.toFloat())
                     continue
@@ -181,7 +249,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
                     Role.RW -> -2.5f to 16f
                     Role.LD -> -20f to -10f
                     Role.RD -> -20f to 10f
-                    Role.G -> 0f to 0f
+                    Role.G -> -10f to 0f
                 }
                 var x = fx + a * ax
                 var y = fy + ay
@@ -190,13 +258,14 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
                 s.place(x, y, atan2(fy - y, fx - x))
             }
             if (w.isHuman(team.id)) {
-                val active = team.skaters.firstOrNull { !it.isGoalie && !it.inPenaltyBox }?.index ?: 0
+                val active = team.skaters.firstOrNull { !it.actsAsGoalie(w) && !it.inPenaltyBox }?.index ?: 0
                 w.controlled[team.id] = active
             }
         }
         w.phase = Phase.FACEOFF
         w.phaseTimer = FACEOFF_HOLD
         w.events.add(GameEvent.FACEOFF_SET)
+        resetOffside()
     }
 
     private fun dropPuck(inputs: Array<PlayerInput?>) {
@@ -208,6 +277,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
             human1 && !human0 -> if (rng.nextFloat() < ai.faceoffHumanBias) 1 else 0
             else -> if (rng.nextBoolean()) 0 else 1
         }
+        resetOffside()
         val a = w.teams[winner].attackDir
         w.puck.vx = -a * (15f + rng.nextFloat() * 8f)
         w.puck.vy = (rng.nextFloat() - 0.5f) * 18f
@@ -229,7 +299,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
     fun statsLine(): String {
         val s = stats
         fun t(i: Int) = "${s[i * STAT_N + STAT_GOAL]}g/${s[i * STAT_N + STAT_SOG]}sog/${s[i * STAT_N + STAT_SAVE]}sv/" +
-            "${s[i * STAT_N + STAT_PEN]}pen/${s[i * STAT_N + STAT_ICING]}ice"
+            "${s[i * STAT_N + STAT_PEN]}pen/${s[i * STAT_N + STAT_ICING]}ice/${s[i * STAT_N + STAT_OFFSIDE]}off"
         return "stats T0 ${t(0)} T1 ${t(1)} whistles=${s[STAT_WHISTLE_IDX]}"
     }
 
@@ -260,7 +330,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         w.goaliePulled[1] = false
 
         if (w.penaltyTeam != -1 && w.penaltyTeam != scorer.id) {
-            releasePenalty()
+            releasePenalty(quiet = true)
         }
     }
 
@@ -309,7 +379,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         w.phase = Phase.GAME_OVER
         val tie = w.teams[0].score == w.teams[1].score
         val winner = if (w.teams[0].score > w.teams[1].score) w.teams[0] else w.teams[1]
-        if (w.penaltyTeam != -1) releasePenalty()
+        if (w.penaltyTeam != -1) releasePenalty(quiet = true)
         if (tie) w.showBanner("FINAL - TIE", scoreLine(), 9999f)
         else w.showBanner("FINAL", winner.info.fullName.uppercase() + " WIN " + scoreLine(), 9999f)
         w.events.add(GameEvent.HORN)
@@ -381,6 +451,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
             val goalieSkill = if (w.isHuman(team.id)) HUMAN_GOALIE_SKILL else ai.goalieSkill
             val padScale = if (w.isHuman(team.id)) 1f else ai.goaliePadScale
             val goalieLead = if (w.isHuman(team.id)) HUMAN_GOALIE_LEAD else ai.goalieLead
+            team.goalie.pulled = w.goaliePulled[team.id]
             for (s in team.skaters) {
                 if (s.inPenaltyBox) continue
                 if (w.isShootout) {
@@ -453,12 +524,12 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         }
 
         // AI puck carrier deke attempt against lunging opponents
-        val carrier = w.puck.carrier
-        if (carrier != null && !w.isHuman(carrier.team) && carrier.dekeTimer <= 0f && carrier.actionCooldown <= 0f) {
-            for (o in w.opponent(carrier.team).skaters) {
-                if (!o.isGoalie && (o.checkTimer > 0f || o.distanceTo(carrier.x, carrier.y) < 6f)) {
+        val aiCarrier = w.puck.carrier
+        if (aiCarrier != null && !w.isHuman(aiCarrier.team) && aiCarrier.dekeTimer <= 0f && aiCarrier.actionCooldown <= 0f) {
+            for (o in w.opponent(aiCarrier.team).skaters) {
+                if (!o.actsAsGoalie(w) && !o.inPenaltyBox && (o.checkTimer > 0f || o.distanceTo(aiCarrier.x, aiCarrier.y) < 6f)) {
                     if (rng.nextFloat() < 0.35f) {
-                        startDeke(carrier)
+                        startDeke(aiCarrier)
                         break
                     }
                 }
@@ -468,15 +539,28 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         PhysicsEngine.resolveSkaterCollisions(w.allSkaters) { a, b, closing -> handleContact(a, b, closing) }
         for (s in w.allSkaters) PhysicsEngine.constrainSkater(s)
 
+        // Contact may have stripped the puck or ended the play; don't carry for a player who lost it.
+        if (w.phase != Phase.PLAY) return
+        val carrier = w.puck.carrier
+
         if (carrier != null) {
             icingTeam = carrier.team
-            icingArmed = !w.isShootout && !carrier.isGoalie && w.team(carrier.team).toAttackX(carrier.x) < 0f
+            icingArmed = !w.isShootout && !carrier.actsAsGoalie(w) && w.team(carrier.team).toAttackX(carrier.x) < 0f
             PhysicsEngine.carryPuck(w.puck, carrier, dt)
             contestPuck(carrier, dt)
         } else {
-            val end = PhysicsEngine.updatePuck(w.puck, dt, w.events)
-            if (end != 0) { scoreGoal(end); return }
-            if (!handleGoalies()) tryPickups()
+            // Substep fast pucks so the (discrete) goalie test can't be tunnelled like the swept goal test.
+            val pk = w.puck
+            val steps = ceil(pk.speed * dt / 1.5f).toInt().coerceIn(1, 4)
+            val sdt = dt / steps
+            for (i in 0 until steps) {
+                val end = PhysicsEngine.updatePuck(pk, sdt, w.events)
+                if (end != 0) { scoreGoal(end); return }
+                if (handleGoalies()) break
+                tryPickups()
+                if (pk.carrier != null) break
+            }
+            if (w.phase != Phase.PLAY) return
             if (w.puck.carrier == null && icingArmed) {
                 noteOpposingTouch()
                 checkIcing()
@@ -490,7 +574,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         val p = w.puck
         if (p.lastTouchTeam != icingTeam) return
         for (s in w.team(1 - icingTeam).skaters) {
-            if (s.isGoalie || s.inPenaltyBox) continue
+            if (s.actsAsGoalie(w) || s.inPenaltyBox) continue
             val d = min(hypot(s.bladeX() - p.x, s.bladeY() - p.y), hypot(s.x - p.x, s.y - p.y) - s.radius)
             if (d < 2f) { p.lastTouchTeam = s.team; return }
         }
@@ -507,7 +591,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         val pt = p.passTarget
         if (pt != null && pt.team == icingTeam && !pt.inPenaltyBox && hypot(pt.x - p.x, pt.y - p.y) < ICING_WAVEOFF_FT) return
         for (m in team.skaters) {
-            if (m.isGoalie || m.inPenaltyBox) continue
+            if (m.actsAsGoalie(w) || m.inPenaltyBox) continue
             if (hypot(m.x - p.x, m.y - p.y) < ICING_WAVEOFF_FT) return
         }
         // Short-handed teams may ice the puck freely.
@@ -528,7 +612,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         if (w.isShootout) return
         val team = w.team(t)
         val carrier = w.puck.carrier
-        if (carrier != null && carrier.team == t && !carrier.isGoalie) {
+        if (carrier != null && carrier.team == t && !carrier.actsAsGoalie(w)) {
             w.controlled[t] = carrier.index
             return
         }
@@ -540,7 +624,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
             var best: Skater? = null
             var bestD = Float.MAX_VALUE
             for (s in team.skaters) {
-                if (s.isGoalie || s.inPenaltyBox || s === cur) continue
+                if (s.actsAsGoalie(w) || s.inPenaltyBox || s === cur) continue
                 val d = s.distanceTo(px, py)
                 if (d < bestD) { bestD = d; best = s }
             }
@@ -551,7 +635,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         var nearest: Skater? = null
         var nearestD = Float.MAX_VALUE
         for (s in team.skaters) {
-            if (s.isGoalie || s.inPenaltyBox || s.stunTimer > 0f) continue
+            if (s.actsAsGoalie(w) || s.inPenaltyBox || s.stunTimer > 0f) continue
             val d = s.distanceTo(px, py)
             if (d < nearestD) { nearestD = d; nearest = s }
         }
@@ -565,7 +649,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         val w = world
         val s = w.controlledSkater(t) ?: return
         if (s.stunTimer > 0f) { w.shotCharge[t] = 0f; return }
-        if (input.deke) startDeke(s)
+        if (input.deke) startDeke(s, input.dekeSign)
         val hasPuck = w.puck.carrier === s
         if (hasPuck) {
             w.shotCharge[t] = if (input.shootHeld) input.shootCharge else 0f
@@ -591,7 +675,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
             }
         } else {
             w.shotCharge[t] = 0f
-            if (s.isGoalie) {
+            if (s.actsAsGoalie(w)) {
                 // Active Goalie Save Controls!
                 if (input.shootRelease && s.goalieActionTimer <= 0f) {
                     s.goalieAction = GoalieAction.BUTTERFLY
@@ -662,7 +746,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         var best: Skater? = null
         var bestScore = Float.MAX_VALUE
         for (m in team.skaters) {
-            if (m === s || m.isGoalie || m.stunTimer > 0f || m.inPenaltyBox) continue
+            if (m === s || m.actsAsGoalie(w) || m.stunTimer > 0f || m.inPenaltyBox) continue
             val dx = m.x - s.x
             val dy = m.y - s.y
             val d = hypot(dx, dy)
@@ -686,7 +770,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
 
     /** Passes straight to [target] (no receiver re-selection). False if the lane is blocked or the target is unusable. */
     fun passTo(s: Skater, target: Skater, accuracy: Float, human: Boolean, checkLane: Boolean): Boolean {
-        if (world.puck.carrier !== s || target === s || target.isGoalie || target.stunTimer > 0f || target.inPenaltyBox) return false
+        if (world.puck.carrier !== s || target === s || target.actsAsGoalie(world) || target.stunTimer > 0f || target.inPenaltyBox) return false
         if (hypot(target.x - s.x, target.y - s.y) < 3f) return false
         if (checkLane && laneBlocked(s, target)) return false
         launchPass(s, target, accuracy, human)
@@ -726,6 +810,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         val len2 = dx * dx + dy * dy
         if (len2 < 0.01f) return false
         for (o in opp.skaters) {
+            if (o.inPenaltyBox) continue
             val t = ((o.x - from.x) * dx + (o.y - from.y) * dy) / len2
             if (t <= 0.05f || t >= 0.95f) continue
             val cx = from.x + dx * t
@@ -748,7 +833,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         if (victim == null) {
             var bestD = 9f
             for (o in world.opponent(s.team).skaters) {
-                if (o.isGoalie) continue
+                if (o.actsAsGoalie(world) || o.inPenaltyBox) continue
                 val d = s.distanceTo(o.x, o.y)
                 val bonus = if (world.puck.carrier === o) 3f else 0f
                 if (d - bonus < bestD) { bestD = d - bonus; victim = o }
@@ -772,13 +857,13 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         s.facing = atan2(dirY, dirX)
     }
 
-    fun startDeke(s: Skater) {
+    fun startDeke(s: Skater, sign: Float = 0f) {
         if (s.actionCooldown > 0f || s.stunTimer > 0f || s.dekeTimer > 0f) return
         s.dekeTimer = 0.38f
         s.actionCooldown = 0.65f
         val perpX = -sin(s.facing)
         val perpY = cos(s.facing)
-        s.dekeDir = if (rng.nextBoolean()) 1f else -1f
+        s.dekeDir = if (sign > 0f) 1f else if (sign < 0f) -1f else if (rng.nextBoolean()) 1f else -1f
         val sp = 14f
         s.vx += perpX * s.dekeDir * sp
         s.vy += perpY * s.dekeDir * sp
@@ -801,13 +886,13 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
     private fun handleContact(a: Skater, b: Skater, closing: Float) {
         if (a.team == b.team) return
         val checker = when {
-            a.checkTimer > 0f && !a.isGoalie -> a
-            b.checkTimer > 0f && !b.isGoalie -> b
+            a.checkTimer > 0f && !a.actsAsGoalie(world) -> a
+            b.checkTimer > 0f && !b.actsAsGoalie(world) -> b
             else -> null
         }
         if (checker != null) {
             val victim = if (checker === a) b else a
-            if (victim.isGoalie || victim.stunTimer > 0f) return
+            if (victim.actsAsGoalie(world) || victim.stunTimer > 0f) return
             if (!world.isHuman(checker.team) && world.puck.carrier !== victim &&
                 hypot(victim.x - world.puck.x, victim.y - world.puck.y) > 10f &&
                 rng.nextFloat() < AI_BRUSH_CHANCE) {
@@ -862,7 +947,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
             }
             return
         }
-        if (closing > 20f && !a.isGoalie && !b.isGoalie) {
+        if (closing > 20f && !a.actsAsGoalie(world) && !b.actsAsGoalie(world)) {
             val fast = if (a.speed >= b.speed) a else b
             val slow = if (fast === a) b else a
             if (slow.stunTimer <= 0f && rng.nextFloat() < 0.5f) {
@@ -910,6 +995,8 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
             w.controlled[s.team] = s.index
         }
         w.events.add(GameEvent.PICKUP)
+        // An offside attacker touching the puck stops play.
+        if (!w.isShootout && w.phase == Phase.PLAY && offsideMark[s.team * 6 + s.index]) callOffside(w.team(s.team), s)
     }
 
     /** Opponents try to strip the puck from [carrier] with pokes, stick contact or body contact. */
@@ -917,8 +1004,8 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         val w = world
         val p = w.puck
         for (o in w.opponent(carrier.team).skaters) {
-            if (o.stunTimer > 0f) continue
-            if (o.isGoalie) {
+            if (o.stunTimer > 0f || o.inPenaltyBox) continue
+            if (o.actsAsGoalie(w)) {
                 if (hypot(o.x - p.x, o.y - p.y) < o.radius + Rink.PUCK_R + 0.3f) {
                     loosePuck(carrier, o.vx * 0.5f + (p.x - o.x) * 3f, o.vy * 0.5f + (p.y - o.y) * 3f, 0.4f)
                     return
@@ -1036,7 +1123,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         var bestD = Float.MAX_VALUE
         for (s in w.allSkaters) {
             val isShootoutShooterGoalie = w.isShootout && s.team == w.shootoutTurn && s.index == w.shootoutShooterIndex[w.shootoutTurn]
-            if ((s.isGoalie && !isShootoutShooterGoalie) || s.stunTimer > 0f || s.pickupCooldown > 0f || s.inPenaltyBox) continue
+            if ((s.actsAsGoalie(w) && !isShootoutShooterGoalie) || s.stunTimer > 0f || s.pickupCooldown > 0f || s.inPenaltyBox) continue
             val bladeD = hypot(s.bladeX() - p.x, s.bladeY() - p.y)
             val bodyD = hypot(s.x - p.x, s.y - p.y) - s.radius + 0.5f
             val d = min(bladeD, bodyD)
@@ -1121,7 +1208,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         offender.place(0f, boxY, 0f)
 
         if (w.controlled[offender.team] == offender.index) {
-            val next = w.teams[offender.team].skaters.firstOrNull { !it.isGoalie && !it.inPenaltyBox }
+            val next = w.teams[offender.team].skaters.firstOrNull { !it.actsAsGoalie(w) && !it.inPenaltyBox }
             if (next != null) w.controlled[offender.team] = next.index
         }
 
@@ -1135,7 +1222,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         startWhistle(fx, fy)
     }
 
-    fun releasePenalty() {
+    fun releasePenalty(quiet: Boolean = false) {
         val w = world
         val t = w.penaltyTeam
         val idx = w.penaltyPlayerIndex
@@ -1148,11 +1235,12 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         w.penaltyTimer = 0f
         w.penaltyPlayerIndex = -1
         penaltyExtended = false
-        w.showBanner("FULL STRENGTH", null, 1.5f)
+        if (!quiet) w.showBanner("FULL STRENGTH", null, 1.5f)
     }
 
     fun togglePullGoalie(teamId: Int): Boolean {
         val w = world
+        if (w.isShootout || w.phase != Phase.PLAY) return w.goaliePulled[teamId]
         w.goaliePulled[teamId] = !w.goaliePulled[teamId]
         val pulled = w.goaliePulled[teamId]
         val team = w.team(teamId)

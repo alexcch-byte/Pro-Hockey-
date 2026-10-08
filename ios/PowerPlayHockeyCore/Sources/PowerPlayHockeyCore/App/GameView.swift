@@ -39,6 +39,7 @@ public final class GameView: UIView {
 
         let aiSettings = AiSettings.forDifficulty(config.aiDifficulty)
         self.simulation = Simulation(world: world, ai: aiSettings)
+        self.simulation.uncappedOvertime = config.isTournament
 
         super.init(frame: frame)
         self.isMultipleTouchEnabled = true
@@ -113,6 +114,8 @@ public final class GameView: UIView {
         dt = min(max(dt, 0.001), 0.05)
 
         // Snapshot human touch inputs
+        let controlled = world.controlledSkater(localTeamIndex)
+        controls.carrying = (controlled != nil && world.puck.carrier === controlled)
         controls.snapshotInto(localPlayerInput)
 
         // Poll physical game controllers (Xbox, PlayStation, MFi, Switch)

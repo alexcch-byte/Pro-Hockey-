@@ -19,6 +19,9 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
     private class Pt { var x = 0f; var y = 0f }
     private val leadPuck = Pt()
 
+    /** The goalie actually in net; a pulled goalie plays as a skater. */
+    private fun Skater.goalieNow(): Boolean = isGoalie && !pulled
+
     private enum class Situation { OWN, OPP, LOOSE }
 
     private companion object {
@@ -119,6 +122,11 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
         if (abs(s.aiTargetX) > Rink.GOAL_LINE_X - 1.5f && abs(s.aiTargetY) < 5f) {
             s.aiTargetY = if (s.aiTargetY < 0f) -6f else 6f
         }
+        // Offside: without the puck, stay on the neutral side of the attacking blue line until the puck is in the zone.
+        if (carrier !== s && team.toAttackX(puck.x) <= Rink.BLUE_LINE_X) {
+            val lim = Rink.BLUE_LINE_X - 2.5f
+            if (team.toAttackX(s.aiTargetX) > lim) s.aiTargetX = team.toWorldX(lim)
+        }
         s.aiTargetX = s.aiTargetX.coerceIn(-96f, 96f)
         s.aiTargetY = s.aiTargetY.coerceIn(-39f, 39f)
     }
@@ -137,7 +145,7 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
         var best: Skater? = null
         var bestD = Float.MAX_VALUE
         for (s in team.skaters) {
-            if (s.isGoalie || s.index == humanIdx || s.stunTimer > 0f) continue
+            if (s.goalieNow() || s.inPenaltyBox || s.index == humanIdx || s.stunTimer > 0f) continue
             val d = s.distanceTo(x, y) - (if (s.aiChaser) 3.5f else 0f)
             if (d < bestD) { bestD = d; best = s }
         }
@@ -157,7 +165,7 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
         var aD = Float.MAX_VALUE
         if (netCrash) {
             for (s in team.skaters) {
-                if (s.isGoalie || s.role == Role.LD || s.role == Role.RD || s.index == humanIdx || s.stunTimer > 0f) continue
+                if (s.goalieNow() || s.inPenaltyBox || s.role == Role.LD || s.role == Role.RD || s.index == humanIdx || s.stunTimer > 0f) continue
                 val d = s.distanceTo(x, y) - (if (s.aiChaser) 3.5f else 0f)
                 if (d < aD) { aD = d; a = s }
             }
@@ -167,7 +175,7 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
         val aFixed = a != null // net-crash forward already chosen as A
         for (s in team.skaters) {
             if (s === a && aFixed) continue
-            if (s.isGoalie || s.index == humanIdx || s.stunTimer > 0f) continue
+            if (s.goalieNow() || s.inPenaltyBox || s.index == humanIdx || s.stunTimer > 0f) continue
             var d = s.distanceTo(x, y) - (if (s.aiChaser) 3.5f else 0f)
             if (netCrash && (s.role == Role.LD || s.role == Role.RD)) d += 12f
             if (aFixed) {
@@ -191,13 +199,13 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
         var bestScore = Float.MAX_VALUE
         val isD = s.role == Role.LD || s.role == Role.RD
         for (o in opp.skaters) {
-            if (o.isGoalie || o === carrier || o.inPenaltyBox || o.stunTimer > 0f) continue
+            if (o.goalieNow() || o === carrier || o.inPenaltyBox || o.stunTimer > 0f) continue
             val oax = team.toAttackX(o.x)
             if (oax > -Rink.BLUE_LINE_X) continue // only attackers already in (or entering) our zone
             // Claimed by a teammate who is still covering him?
             var taken = false
             for (t in team.skaters) {
-                if (t === s || t.isGoalie || t.aiChaser || t.inPenaltyBox || t.stunTimer > 0f) continue
+                if (t === s || t.goalieNow() || t.aiChaser || t.inPenaltyBox || t.stunTimer > 0f) continue
                 if (t.index == world.controlled[team.id] && world.isHuman(team.id)) continue
                 if (t.markId == o.index) { taken = true; break }
             }
@@ -241,7 +249,7 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
         var hanger: Skater? = null
         var hx = 0f
         for (o in opp.skaters) {
-            if (o.isGoalie || o.inPenaltyBox) continue
+            if (o.goalieNow() || o.inPenaltyBox) continue
             val oax = team.toAttackX(o.x)
             if (oax > limit) continue
             if (hanger == null || oax < hx) { hanger = o; hx = oax }
@@ -252,7 +260,7 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
         val humanTeam = world.isHuman(team.id)
         val carrier = puck.carrier
         for (t in team.skaters) {
-            if (t === s || t.isGoalie || (t.role != Role.LD && t.role != Role.RD)) continue
+            if (t === s || t.goalieNow() || (t.role != Role.LD && t.role != Role.RD)) continue
             if (t.inPenaltyBox || t.stunTimer > 0f || t.aiChaser || t === carrier) continue
             if (humanTeam && t.index == world.controlled[team.id]) continue
             if (t.distanceTo(h.x, h.y) < s.distanceTo(h.x, h.y)) return false
@@ -276,7 +284,7 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
                 Role.RW -> 68f to 22f
                 Role.LD -> 40f to -24f
                 Role.RD -> 40f to 24f
-                Role.G -> 0f to 0f
+                Role.G -> 40f to 0f
             }
         }
         return when (role) {
@@ -285,7 +293,7 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
             Role.RW -> if (inZone) (74f to 13f) else (min(pax + 12f, 23f) to 24f)
             Role.LD -> if (inZone) (36f to -18f) else ((pax - 20f) to -14f)
             Role.RD -> if (inZone) (36f to 18f) else ((pax - 20f) to 14f)
-            Role.G -> 0f to 0f
+            Role.G -> (if (inZone) 36f else pax - 20f) to 0f
         }
     }
 
@@ -298,7 +306,7 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
             Role.RW -> min(cax - 4f, 15f) to 18f
             Role.LD -> if (behindNet) (-80f to -6f) else ((cax - 16f).coerceIn(-82f, 5f) to (-9f + cay * 0.25f))
             Role.RD -> if (behindNet) (-80f to 6f) else ((cax - 16f).coerceIn(-82f, 5f) to (9f + cay * 0.25f))
-            Role.G -> 0f to 0f
+            Role.G -> (if (behindNet) -80f else (cax - 16f).coerceIn(-82f, 5f)) to cay * 0.25f
         }
     }
 
@@ -315,7 +323,7 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
         val fx = cos(s.facing) * team.attackDir
         val fy = sin(s.facing)
         for (o in opp.skaters) {
-            if (o.isGoalie) continue
+            if (o.goalieNow() || o.inPenaltyBox) continue
             val d = s.distanceTo(o.x, o.y)
             if (d < pressureD) {
                 val ox = team.toAttackX(o.x) - sax
@@ -346,12 +354,12 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
                 var target: Skater? = null
                 var bestQ = ownQ + 0.2f
                 for (m in team.skaters) {
-                    if (m === s || m.isGoalie || m.stunTimer > 0f || m.inPenaltyBox) continue
+                    if (m === s || m.goalieNow() || m.stunTimer > 0f || m.inPenaltyBox) continue
                     val q = shotQuality(team.toAttackX(m.x), m.y)
                     if (q <= bestQ) continue
                     var open = true
                     for (o in opp.skaters) {
-                        if (!o.isGoalie && o.distanceTo(m.x, m.y) < 5f) { open = false; break }
+                        if (!o.goalieNow() && o.distanceTo(m.x, m.y) < 5f) { open = false; break }
                     }
                     if (open) { bestQ = q; target = m }
                 }

@@ -59,7 +59,27 @@ final class GCanvas {
     }
 
     func drawRect(_ rect: CGRect, _ paint: GPaint) {
-        drawShape(CGPath(rect: rect, transform: nil), paint)
+        if let shader = paint.shader {
+            context.saveGState()
+            context.addRect(rect)
+            context.clip()
+            drawShader(shader)
+            context.restoreGState()
+            return
+        }
+        switch paint.style {
+        case .fill:
+            applyFill(paint)
+            context.fill(rect)
+        case .stroke:
+            applyStroke(paint)
+            context.stroke(rect)
+        case .fillAndStroke:
+            applyFill(paint)
+            context.fill(rect)
+            applyStroke(paint)
+            context.stroke(rect)
+        }
     }
 
     func drawRoundRect(_ rect: CGRect, _ rx: CGFloat, _ ry: CGFloat, _ paint: GPaint) {
@@ -157,7 +177,7 @@ final class GCanvas {
     }
 
     private func drawShader(_ spec: RadialGradientSpec) {
-        guard let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: spec.colors.map { HexColor.cgColor($0) } as CFArray, locations: spec.stops) else { return }
+        guard let gradient = spec.cgGradient else { return }
         let center = CGPoint(x: spec.centerX, y: spec.centerY)
         context.drawRadialGradient(gradient, startCenter: center, startRadius: 0, endCenter: center, endRadius: spec.radius, options: [.drawsAfterEndLocation])
     }

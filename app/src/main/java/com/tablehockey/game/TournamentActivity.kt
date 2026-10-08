@@ -28,6 +28,7 @@ class TournamentActivity : AppCompatActivity() {
     private lateinit var layoutSetup: View
     private lateinit var layoutBracket: View
     private lateinit var spinnerSetupTeam: Spinner
+    private var setupTeamIdx = IntArray(0)
     private lateinit var tvTournamentStatus: TextView
     private lateinit var tvMatchPrompt: TextView
     private lateinit var btnPlayMatch: Button
@@ -61,17 +62,20 @@ class TournamentActivity : AppCompatActivity() {
         layoutTrophy = findViewById(R.id.layoutTrophy)
         tvChampionName = findViewById(R.id.tvChampionName)
 
+        // Teams (and so the whole bracket) come from the league chosen on Match Setup.
+        setupTeamIdx = TeamInfo.indicesFor(Prefs.league(this))
         val adapter = ArrayAdapter(
             this,
             android.R.layout.simple_spinner_dropdown_item,
-            TeamInfo.ALL.map { TeamInfo.label(it) }
+            setupTeamIdx.map { TeamInfo.ALL[it].fullName }
         )
         spinnerSetupTeam.adapter = adapter
-        spinnerSetupTeam.setSelection(TeamInfo.DEFAULT_HOME)
+        com.tablehockey.game.model.TeamStyleStore.ensureLoaded(this)
+        spinnerSetupTeam.setSelection(setupTeamIdx.indexOf(com.tablehockey.game.model.TeamStyleStore.favourite(this)).coerceAtLeast(0))
 
         findViewById<Button>(R.id.btnStartTournament).setOnClickListener {
             MusicManager.click(this)
-            val selectedIdx = spinnerSetupTeam.selectedItemPosition
+            val selectedIdx = setupTeamIdx[spinnerSetupTeam.selectedItemPosition.coerceIn(0, setupTeamIdx.size - 1)]
             state = TournamentState.createNew(selectedIdx)
             Prefs.saveTournament(this, state!!)
             updateUi()

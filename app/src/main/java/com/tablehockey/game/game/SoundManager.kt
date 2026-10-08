@@ -92,9 +92,9 @@ class SoundManager(context: Context) {
     private val passes = Takes(R.raw.pass, R.raw.pass_2, R.raw.pass_3)
     private val boards = Takes(R.raw.wall_bounce, R.raw.wall_bounce_2, R.raw.wall_bounce_3)
     private val hits = Takes(R.raw.body_hit, R.raw.body_hit_2, R.raw.body_hit_3)
-    private val saves = Takes(R.raw.save, R.raw.save_2)
+    private val saves = Takes(R.raw.save, R.raw.save_2, R.raw.save_3)
+    private val pickups = Takes(R.raw.pickup, R.raw.pickup_2, R.raw.pickup_3)
     private val skates = Takes(R.raw.skate1, R.raw.skate2, R.raw.skate3, R.raw.skate4)
-    private val pickupId = load(R.raw.pickup)
     private val faceoffId = load(R.raw.faceoff)
     private val postId = load(R.raw.post)
     private val whistleId = load(R.raw.whistle)
@@ -106,6 +106,9 @@ class SoundManager(context: Context) {
     private val jingleWinId = load(R.raw.jingle_win)
     private val jingleLoseId = load(R.raw.jingle_lose)
     private val clickId = load(R.raw.button_click)
+    private val toggleId = load(R.raw.ui_toggle)
+    private val whistleShortId = load(R.raw.whistle_short)
+    @Volatile private var shortWhistleAt = Long.MIN_VALUE / 2
     private val oneTimerId = load(R.raw.one_timer)
     private val gaspId = load(R.raw.gasp)
     private val booId = load(R.raw.boo)
@@ -201,7 +204,7 @@ class SoundManager(context: Context) {
                 val power = ((puckSpeed - 40f) / 40f).coerceIn(0f, 1f)
                 play(passes.next(), 0.6f + 0.2f * power, jitter(0.06f), 0, pan)
             }
-            GameEvent.PICKUP -> play(pickupId, 0.35f, jitter(0.12f), 0, pan)
+            GameEvent.PICKUP -> play(pickups.next(), 0.35f, jitter(0.12f), 0, pan)
             GameEvent.FACEOFF_DROP -> play(faceoffId, 0.8f, jitter(0.03f), 0, pan)
             GameEvent.BOARDS -> {
                 // Soft taps along the boards stay soft; a hard rim booms and echoes.
@@ -228,7 +231,8 @@ class SoundManager(context: Context) {
                 bump(0.3f)
             }
             GameEvent.WHISTLE -> {
-                play(whistleId, 0.9f, 1f, 2)
+                // Offside / icing already played the short double tweet this tick; don't stack the long one on it.
+                if (System.nanoTime() - shortWhistleAt > 200_000_000L) play(whistleId, 0.9f, 1f, 2)
                 tail(true, 0.18f)
             }
             GameEvent.PENALTY -> {
@@ -271,7 +275,9 @@ class SoundManager(context: Context) {
                 bump(0.6f)
             }
             GameEvent.GOALIE_SAVE_MOVE -> play(padStackId, 0.9f, jitter(0.06f), 2, pan)
-            GameEvent.ICING -> {   // the whistle itself comes from the WHISTLE event sent with it
+            GameEvent.OFFSIDE, GameEvent.ICING -> {   // short double tweet; the WHISTLE event sent with it skips its long whistle
+                shortWhistleAt = System.nanoTime()
+                play(whistleShortId, 0.9f, 1f, 2)
                 bump(0.1f)
             }
         }
@@ -398,6 +404,8 @@ class SoundManager(context: Context) {
     }
 
     fun playClick() = play(clickId, 0.6f)
+
+    fun playToggle() = play(toggleId, 0.6f)
 
     fun release() {
         ambienceWanted = false

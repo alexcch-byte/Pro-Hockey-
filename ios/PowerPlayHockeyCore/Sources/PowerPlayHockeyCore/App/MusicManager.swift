@@ -29,10 +29,21 @@ public final class MusicManager {
     private var player: AVAudioPlayer?
     #endif
     private var currentTrack = ""
+    public private(set) var activeTrack = ""
     private var trackVolume: Float = 1.0
+    private var duckFactor: Float = 1.0
+    private var duckWorkItem: DispatchWorkItem?
     private var menuRefs = 0
 
     public init() {}
+
+    public static func trackDefaultVolume(_ track: String) -> Float {
+        switch track {
+        case "music_menu": return menuVolume
+        case "music_clutch": return gameVolume * 1.1
+        default: return gameVolume
+        }
+    }
 
     public func menuStarted() {
         menuRefs += 1
@@ -51,6 +62,7 @@ public final class MusicManager {
     public func play(_ name: String, volume: Float) {
         guard enabled else { return }
         trackVolume = volume
+        activeTrack = name
         if currentTrack == name {
             #if canImport(AVFoundation)
             if let p = player, !p.isPlaying { p.play() }
@@ -61,6 +73,7 @@ public final class MusicManager {
 
         stop()
         currentTrack = name
+        activeTrack = name
 
         #if canImport(AVFoundation)
         let extensions = ["mp3", "m4a", "wav", "ogg", "caf"]
@@ -80,10 +93,19 @@ public final class MusicManager {
 
         guard let url = soundURL, let p = try? AVAudioPlayer(contentsOf: url) else { return }
         p.numberOfLoops = -1
-        p.volume = volume * userVolume
+        p.volume = min(max(volume * userVolume * duckFactor, 0), 1)
         p.play()
         self.player = p
         #endif
+    }
+
+    public func switchTo(_ name: String, volume: Float) {
+        guard enabled else { return }
+        if activeTrack == name && currentTrack == name {
+            applyVolume(volume)
+            return
+        }
+        play(name, volume: volume)
     }
 
     public func pause() {
@@ -99,24 +121,33 @@ public final class MusicManager {
     }
 
     public func stop() {
+        duckWorkItem?.cancel()
+        duckWorkItem = nil
+        duckFactor = 1.0
         #if canImport(AVFoundation)
         player?.stop()
         player = nil
         #endif
         currentTrack = ""
+        activeTrack = ""
     }
 
     public func duck(level: Float, duration: Double) {
-        applyVolume(trackVolume * level)
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
+        duckWorkItem?.cancel()
+        duckFactor = level
+        applyVolume(trackVolume)
+        let item = DispatchWorkItem { [weak self] in
             guard let self = self else { return }
+            self.duckFactor = 1.0
             self.applyVolume(self.trackVolume)
         }
+        duckWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: item)
     }
 
     private func applyVolume(_ volume: Float) {
         #if canImport(AVFoundation)
-        player?.volume = min(max(volume * userVolume, 0), 1)
+        player?.volume = min(max(volume * userVolume * duckFactor, 0), 1)
         #endif
     }
 }

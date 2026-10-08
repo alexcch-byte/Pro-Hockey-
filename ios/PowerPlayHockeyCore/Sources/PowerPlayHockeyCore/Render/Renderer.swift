@@ -37,6 +37,7 @@ final class Renderer {
     let density: CGFloat
 
     let rinkRect: CGRect
+    let rinkBakeRect: CGRect
     private let rinkPath: GPath
     var tmpRect: CGRect = .zero
     let tmpPath = GPath()
@@ -45,6 +46,23 @@ final class Renderer {
     private var winterLandscape: CGImage?
     private let crowdRect: CGRect
     var animTime: CGFloat = 0
+
+    private var bakedRinkIndoor: CGImage?
+    private var bakedRinkOutdoor: CGImage?
+    private var bakedHomeColor: UInt32 = 0
+    private var skaterDrawBuffer: [Skater] = []
+
+    // Sprite pre-warming cache: [team (0..1)][strideFrame (0..5)][facing (0..15)]
+    var skaterSprites: [[[CGImage?]]] = Array(
+        repeating: Array(repeating: Array(repeating: nil, count: 16), count: 6),
+        count: 2
+    )
+    // Goalie sprite cache: [team (0..1)][stance (0..2)][facing (0..15)]
+    var goalieSprites: [[[CGImage?]]] = Array(
+        repeating: Array(repeating: Array(repeating: nil, count: 16), count: 3),
+        count: 2
+    )
+    var warmedTeams: [UInt32] = [0, 0]
 
     // ----- Indoor rink paints
     private let icePaint = GPaint(color: HexColor.argb("#EDF4F9"))
@@ -256,6 +274,7 @@ final class Renderer {
     init(density: Float) {
         self.density = CGFloat(density)
         rinkRect = CGRect(left: -Renderer.rinkHalfL, top: -Renderer.rinkHalfW, right: Renderer.rinkHalfL, bottom: Renderer.rinkHalfW)
+        rinkBakeRect = CGRect(left: -Renderer.rinkHalfL - 3.5, top: -Renderer.rinkHalfW - 3.5, right: Renderer.rinkHalfL + 3.5, bottom: Renderer.rinkHalfW + 3.5)
         let path = GPath()
         path.addRoundRect(rinkRect, Renderer.rinkCornerR, Renderer.rinkCornerR)
         rinkPath = path
@@ -264,6 +283,8 @@ final class Renderer {
 
     func resize(_ w: Int, _ h: Int) {
         camera.resize(w, h)
+        bakedRinkIndoor = nil
+        bakedRinkOutdoor = nil
         buildCrowd()
         buildWinterLandscape()
     }
@@ -508,9 +529,15 @@ final class Renderer {
         }
         drawSpray(canvas)
 
-        let sorted = world.allSkaters.filter { !world.isShootout || abs($0.y) < 45 }.sorted { $0.y < $1.y }
+        skaterDrawBuffer.removeAll(keepingCapacity: true)
+        for s in world.allSkaters {
+            if !world.isShootout || abs(s.y) < 45 {
+                skaterDrawBuffer.append(s)
+            }
+        }
+        skaterDrawBuffer.sort { $0.y < $1.y }
         let controlled: Skater? = localTeam >= 0 ? world.controlledSkater(localTeam) : nil
-        for s in sorted {
+        for s in skaterDrawBuffer {
             drawSkater(canvas, world, s, s === controlled, localTeam >= 0 ? CGFloat(world.shotCharge[localTeam]) : 0)
         }
 
@@ -533,17 +560,73 @@ final class Renderer {
 
     private func drawRink(_ canvas: GCanvas, _ world: World) {
         let isPond = world.arenaType == .winterPond
+        if (isPond ? bakedRinkOutdoor : bakedRinkIndoor) == nil || bakedHomeColor != world.teams[0].info.primary {
+            bakeRink(world)
+        }
+
+        if let baked = isPond ? bakedRinkOutdoor : bakedRinkIndoor {
+            canvas.drawImage(baked, in: rinkBakeRect)
+        } else {
+            drawRinkStatic(canvas, world)
+        }
+
+        // Skate scratch marks on ice
+        if scratchCount > 0 {
+            canvas.save()
+            canvas.clipPath(rinkPath)
+            for i in 0..<scratchCount {
+                scratchPaint.alpha = scratchAlpha[i]
+                scratchPaint.strokeWidth = scratchWidth[i]
+                canvas.drawLine(scratchX1[i], scratchY1[i], scratchX2[i], scratchY2[i], scratchPaint)
+            }
+            canvas.restore()
+        }
+
+        // Red goal siren beacons behind nets when goal is scored
+        if world.phase == .goal {
+            drawGoalSirens(canvas)
+        }
+    }
+
+    private func bakeRink(_ world: World) {
+        let isPond = world.arenaType == .winterPond
+        let pxPerFt: CGFloat = 8.0
+        let bw = max(8, Int(rinkBakeRect.width * pxPerFt))
+        let bh = max(8, Int(rinkBakeRect.height * pxPerFt))
+        guard let ctx = CGContext(
+            data: nil,
+            width: bw,
+            height: bh,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return }
+
+        ctx.translateBy(x: 0, y: CGFloat(bh))
+        ctx.scaleBy(x: 1, y: -1)
+
+        let canvas = GCanvas(context: ctx, bounds: CGRect(x: 0, y: 0, width: bw, height: bh))
+        canvas.translate(CGFloat(bw) / 2, CGFloat(bh) / 2)
+        canvas.scale(pxPerFt, pxPerFt)
+
+        drawRinkStatic(canvas, world)
+
+        let img = ctx.makeImage()
+        if isPond {
+            bakedRinkOutdoor = img
+        } else {
+            bakedRinkIndoor = img
+        }
+        bakedHomeColor = world.teams[0].info.primary
+    }
+
+    private func drawRinkStatic(_ canvas: GCanvas, _ world: World) {
+        let isPond = world.arenaType == .winterPond
         canvas.drawPath(rinkPath, isPond ? pondBoardsPaint : boardsPaint)
         canvas.drawPath(rinkPath, isPond ? pondIcePaint : icePaint)
         canvas.save()
         canvas.clipPath(rinkPath)
-
-        // Skate scratch marks on ice
-        for i in 0..<scratchCount {
-            scratchPaint.alpha = scratchAlpha[i]
-            scratchPaint.strokeWidth = scratchWidth[i]
-            canvas.drawLine(scratchX1[i], scratchY1[i], scratchX2[i], scratchY2[i], scratchPaint)
-        }
 
         if isPond {
             // Natural frozen lake ice veins
@@ -557,10 +640,10 @@ final class Renderer {
 
         // Faint zone shading toward the ends.
         let shade = isPond ? pondIceShadePaint : iceShadePaint
-        tmpRect = CGRect(left: -Renderer.rinkHalfL, top: -Renderer.rinkHalfW, right: -Renderer.goalLineX, bottom: Renderer.rinkHalfW)
-        canvas.drawRect(tmpRect, shade)
-        tmpRect = CGRect(left: Renderer.goalLineX, top: -Renderer.rinkHalfW, right: Renderer.rinkHalfL, bottom: Renderer.rinkHalfW)
-        canvas.drawRect(tmpRect, shade)
+        var localRect = CGRect(left: -Renderer.rinkHalfL, top: -Renderer.rinkHalfW, right: -Renderer.goalLineX, bottom: Renderer.rinkHalfW)
+        canvas.drawRect(localRect, shade)
+        localRect = CGRect(left: Renderer.goalLineX, top: -Renderer.rinkHalfW, right: Renderer.rinkHalfL, bottom: Renderer.rinkHalfW)
+        canvas.drawRect(localRect, shade)
 
         // Goal lines, blue lines, centre line.
         canvas.drawLine(-Renderer.goalLineX, -Renderer.rinkHalfW, -Renderer.goalLineX, Renderer.rinkHalfW, redLine)
@@ -596,86 +679,87 @@ final class Renderer {
         }
 
         // Creases, trapezoids and nets at both ends.
+        let localPath = GPath()
         for e: CGFloat in [-1, 1] {
             let gx = e * Renderer.goalLineX
-            tmpRect = CGRect(left: gx - Renderer.creaseR, top: -Renderer.creaseR, right: gx + Renderer.creaseR, bottom: Renderer.creaseR)
+            localRect = CGRect(left: gx - Renderer.creaseR, top: -Renderer.creaseR, right: gx + Renderer.creaseR, bottom: Renderer.creaseR)
             let start: CGFloat = e > 0 ? 90 : -90
-            canvas.drawArc(tmpRect, start, 180, true, creaseFill)
-            canvas.drawArc(tmpRect, start, 180, false, circleRed)
+            canvas.drawArc(localRect, start, 180, true, creaseFill)
+            canvas.drawArc(localRect, start, 180, false, circleRed)
             // trapezoid
             canvas.drawLine(gx, -11, e * Renderer.rinkHalfL, -14, trapezoid)
             canvas.drawLine(gx, 11, e * Renderer.rinkHalfL, 14, trapezoid)
             // net
             let backX = e * (Renderer.goalLineX + Renderer.netDepth)
-            tmpRect = CGRect(left: min(gx, backX), top: -Renderer.netHalfW, right: max(gx, backX), bottom: Renderer.netHalfW)
-            canvas.drawRect(tmpRect, netFill)
-            var mx = tmpRect.minX
-            while mx <= tmpRect.maxX { canvas.drawLine(mx, tmpRect.minY, mx, tmpRect.maxY, netMesh); mx += 0.6 }
-            var my = tmpRect.minY
-            while my <= tmpRect.maxY { canvas.drawLine(tmpRect.minX, my, tmpRect.maxX, my, netMesh); my += 0.6 }
-            tmpPath.reset()
-            tmpPath.moveTo(gx, -Renderer.netHalfW)
-            tmpPath.lineTo(backX, -Renderer.netHalfW)
-            tmpPath.lineTo(backX, Renderer.netHalfW)
-            tmpPath.lineTo(gx, Renderer.netHalfW)
-            canvas.drawPath(tmpPath, netFrame)
+            localRect = CGRect(left: min(gx, backX), top: -Renderer.netHalfW, right: max(gx, backX), bottom: Renderer.netHalfW)
+            canvas.drawRect(localRect, netFill)
+            var mx = localRect.minX
+            while mx <= localRect.maxX { canvas.drawLine(mx, localRect.minY, mx, localRect.maxY, netMesh); mx += 0.6 }
+            var my = localRect.minY
+            while my <= localRect.maxY { canvas.drawLine(localRect.minX, my, localRect.maxX, my, netMesh); my += 0.6 }
+            localPath.reset()
+            localPath.moveTo(gx, -Renderer.netHalfW)
+            localPath.lineTo(backX, -Renderer.netHalfW)
+            localPath.lineTo(backX, Renderer.netHalfW)
+            localPath.lineTo(gx, Renderer.netHalfW)
+            canvas.drawPath(localPath, netFrame)
             canvas.drawCircle(gx, -Renderer.goalHalfW, Renderer.postR, postPaint)
             canvas.drawCircle(gx, Renderer.goalHalfW, Renderer.postR, postPaint)
-        }
-
-        // Red goal siren beacons behind nets when goal is scored
-        if world.phase == .goal {
-            let pulse = sin(animTime * 14) * 0.5 + 0.5
-            let redAlpha = Int(130 + pulse * 125)
-            sirenPaint.color = HexColor.argb(redAlpha, 255, 20, 20)
-            for e: CGFloat in [-1, 1] {
-                let beaconX = e * (Renderer.goalLineX + Renderer.netDepth + 1.2)
-                let beaconY: CGFloat = 0
-                canvas.drawCircle(beaconX, beaconY, 1.4 + pulse * 0.6, sirenPaint)
-                canvas.save()
-                canvas.translate(beaconX, beaconY)
-                let beamAngle = animTime * 7 * e
-                canvas.rotate(beamAngle * 180 / .pi)
-                sirenBeam.color = HexColor.argb(Int(50 + pulse * 70), 255, 40, 40)
-                tmpPath.reset()
-                tmpPath.moveTo(0, 0)
-                tmpPath.lineTo(14, -4.5)
-                tmpPath.lineTo(14, 4.5)
-                tmpPath.close()
-                canvas.drawPath(tmpPath, sirenBeam)
-                tmpPath.reset()
-                tmpPath.moveTo(0, 0)
-                tmpPath.lineTo(-14, -4.5)
-                tmpPath.lineTo(-14, 4.5)
-                tmpPath.close()
-                canvas.drawPath(tmpPath, sirenBeam)
-                canvas.restore()
-            }
         }
         canvas.restore()
 
         // Boards: kick plate inside, glass outside.
         if isPond {
             canvas.drawPath(rinkPath, pondKickPlate)
-            tmpRect = rinkRect.insetBy(dx: -1.1, dy: -1.1)
-            tmpPath.reset()
-            tmpPath.addRoundRect(tmpRect, Renderer.rinkCornerR + 1.1, Renderer.rinkCornerR + 1.1)
-            canvas.drawPath(tmpPath, pondBoardsPaint)
-            tmpRect = tmpRect.insetBy(dx: -0.8, dy: -0.8)
-            tmpPath.reset()
-            tmpPath.addRoundRect(tmpRect, Renderer.rinkCornerR + 1.9, Renderer.rinkCornerR + 1.9)
-            canvas.drawPath(tmpPath, pondSnowCapPaint)
+            localRect = rinkRect.insetBy(dx: -1.1, dy: -1.1)
+            localPath.reset()
+            localPath.addRoundRect(localRect, Renderer.rinkCornerR + 1.1, Renderer.rinkCornerR + 1.1)
+            canvas.drawPath(localPath, pondBoardsPaint)
+            localRect = localRect.insetBy(dx: -0.8, dy: -0.8)
+            localPath.reset()
+            localPath.addRoundRect(localRect, Renderer.rinkCornerR + 1.9, Renderer.rinkCornerR + 1.9)
+            canvas.drawPath(localPath, pondSnowCapPaint)
         } else {
             canvas.drawPath(rinkPath, kickPlate)
-            tmpRect = rinkRect.insetBy(dx: -1.1, dy: -1.1)
-            tmpPath.reset()
-            tmpPath.addRoundRect(tmpRect, Renderer.rinkCornerR + 1.1, Renderer.rinkCornerR + 1.1)
-            canvas.drawPath(tmpPath, boardsPaint)
-            tmpRect = tmpRect.insetBy(dx: -1.4, dy: -1.4)
-            tmpPath.reset()
-            tmpPath.addRoundRect(tmpRect, Renderer.rinkCornerR + 2.5, Renderer.rinkCornerR + 2.5)
-            canvas.drawPath(tmpPath, glassPaint)
+            localRect = rinkRect.insetBy(dx: -1.1, dy: -1.1)
+            localPath.reset()
+            localPath.addRoundRect(localRect, Renderer.rinkCornerR + 1.1, Renderer.rinkCornerR + 1.1)
+            canvas.drawPath(localPath, boardsPaint)
+            localRect = localRect.insetBy(dx: -1.4, dy: -1.4)
+            localPath.reset()
+            localPath.addRoundRect(localRect, Renderer.rinkCornerR + 2.5, Renderer.rinkCornerR + 2.5)
+            canvas.drawPath(localPath, glassPaint)
         }
+    }
+
+    private func drawGoalSirens(_ canvas: GCanvas) {
+        let pulse = sin(animTime * 14) * 0.5 + 0.5
+        let redAlpha = Int(130 + pulse * 125)
+        sirenPaint.color = HexColor.argb(redAlpha, 255, 20, 20)
+        for e: CGFloat in [-1, 1] {
+            let beaconX = e * (Renderer.goalLineX + Renderer.netDepth + 1.2)
+            let beaconY: CGFloat = 0
+            canvas.drawCircle(beaconX, beaconY, 1.4 + pulse * 0.6, sirenPaint)
+            canvas.save()
+            canvas.translate(beaconX, beaconY)
+            let beamAngle = animTime * 7 * e
+            canvas.rotate(beamAngle * 180 / .pi)
+            sirenBeam.color = HexColor.argb(Int(50 + pulse * 70), 255, 40, 40)
+            tmpPath.reset()
+            tmpPath.moveTo(0, 0)
+            tmpPath.lineTo(14, -4.5)
+            tmpPath.lineTo(14, 4.5)
+            tmpPath.close()
+            canvas.drawPath(tmpPath, sirenBeam)
+            tmpPath.reset()
+            tmpPath.moveTo(0, 0)
+            tmpPath.lineTo(-14, -4.5)
+            tmpPath.lineTo(-14, 4.5)
+            tmpPath.close()
+            canvas.drawPath(tmpPath, sirenBeam)
+            canvas.restore()
+        }
+    }
     }
 
     // ================================================================ spray

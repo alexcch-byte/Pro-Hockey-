@@ -564,10 +564,11 @@ class HudRenderer(private val density: Float) {
     // ---------------------------------------------------------------- scoreboard
 
     fun drawScoreboard(canvas: Canvas, w: World) {
-        val l = dp(10f); val t = dp(8f); val h = dp(34f)
+        val t = dp(8f); val h = dp(34f)
         val blockW = dp(78f); val scoreW = dp(30f); val centreW = dp(98f)
         val r = dp(9f)
         val total = (blockW + scoreW) * 2f + centreW
+        val l = (sw - total) / 2f
         val rt = l + total
         rect.set(l, t + dp(2f), rt, t + h + dp(2f)); canvas.drawRoundRect(rect, r, r, pShadow)
         rect.set(l, t, rt, t + h); canvas.drawRoundRect(rect, r, r, pPlate)
@@ -740,6 +741,18 @@ class HudRenderer(private val density: Float) {
 
     // ---------------------------------------------------------------- banner plate
 
+    /** Accent bar colour: scoring / penalised team colours for goal and penalty banners, gold otherwise. */
+    private fun bannerAccent(w: World, text: String, a: Int): Int {
+        val team = when {
+            text.startsWith("GOAL") -> celebTeam
+            text.startsWith("PENALTY") -> w.penaltyTeam
+            else -> -1
+        }
+        if (team !in 0..1) return Color.argb(a, 251, 191, 36)
+        val c = w.teams[team].info.primary
+        return Color.argb(a, Color.red(c), Color.green(c), Color.blue(c))
+    }
+
     fun drawBanner(canvas: Canvas, w: World) {
         val text = w.banner ?: return
         if (w.bannerTimer <= 0f || w.phase == Phase.GAME_OVER) return
@@ -766,7 +779,7 @@ class HudRenderer(private val density: Float) {
         path.lineTo(cxp + pw / 2f - sk, cyp + ph / 2f); path.lineTo(cxp - pw / 2f, cyp + ph / 2f); path.close()
         pFill.color = Color.argb((225 * out).toInt(), 8, 14, 28)
         canvas.drawPath(path, pFill)
-        pFill.color = Color.argb(a, 251, 191, 36)
+        pFill.color = bannerAccent(w, text, a)
         rect.set(cxp - pw / 2f, cyp + ph / 2f - dp(4f), cxp + pw / 2f - sk, cyp + ph / 2f)
         canvas.drawRect(rect, pFill)
         pBig.alpha = a
@@ -782,7 +795,7 @@ class HudRenderer(private val density: Float) {
     // ---------------------------------------------------------------- controls
 
     fun setPressed(c: TouchControls) {
-        pressedNow[0] = c.shootDown; pressedNow[1] = c.passDown; pressedNow[2] = c.hitDown; pressedNow[3] = c.dekeDown
+        pressedNow[0] = c.shootDown; pressedNow[1] = c.passDown; pressedNow[2] = c.hitDown
     }
 
     fun drawControls(canvas: Canvas, w: World, localTeam: Int, c: TouchControls) {
@@ -796,17 +809,25 @@ class HudRenderer(private val density: Float) {
         pStroke.color = Color.argb(if (c.joyActive) 200 else 130, 255, 255, 255)
         pStroke.strokeWidth = dp(2f)
         canvas.drawCircle(ax, ay, jr, pStroke)
-        if (c.joyActive) {
-            pFill.color = Color.argb(150, 255, 255, 255)
-            canvas.drawCircle(c.joyKnobX, c.joyKnobY, jr * 0.4f, pFill)
-            pStroke.color = Color.argb(230, 255, 255, 255)
-            canvas.drawCircle(c.joyKnobX, c.joyKnobY, jr * 0.4f, pStroke)
+        val flash = c.dekeFlash()
+        if (flash > 0f) {
+            pStroke.color = Color.argb((230 * flash).toInt(), 255, 255, 255)
+            pStroke.strokeWidth = dp(4f)
+            canvas.drawCircle(ax, ay, jr * (1f + 0.12f * (1f - flash)), pStroke)
+            pStroke.strokeWidth = dp(2f)
         }
+        // Knob: always visible (dim at rest, bright while dragging).
+        val kx = if (c.joyActive) c.joyKnobX else c.joyRestX
+        val ky = if (c.joyActive) c.joyKnobY else c.joyRestY
+        pFill.color = Color.argb(if (c.joyActive) 150 else 70, 255, 255, 255)
+        canvas.drawCircle(kx, ky, jr * 0.4f, pFill)
+        pStroke.color = Color.argb(if (c.joyActive) 230 else 140, 255, 255, 255)
+        pStroke.strokeWidth = dp(2f)
+        canvas.drawCircle(kx, ky, jr * 0.4f, pStroke)
 
         val controlled = if (localTeam >= 0) w.controlledSkater(localTeam) else null
-        c.dekeEnabled = controlled?.isGoalie != true
         c.carrying = controlled != null && w.puck.carrier === controlled
-        if (controlled?.isGoalie == true) {
+        if (controlled?.actsAsGoalie(w) == true) {
             textButton(canvas, c.shootX, c.shootY, c.shootR, "BUTTERFLY", "5-hole", press[0], K_DC2626)
             textButton(canvas, c.passX, c.passY, c.passR, "POKE", "stick", press[1], K_2563EB)
             textButton(canvas, c.hitX, c.hitY, c.hitR, "PAD STACK", "sprawl", press[2], K_D97706)
@@ -822,15 +843,6 @@ class HudRenderer(private val density: Float) {
         buttonBase(canvas, c.hitX, c.hitY, c.hitR, press[2], K_F59E0B)
         iconBurst(canvas, c.hitX, c.hitY - c.hitR * 0.2f, c.hitR * 0.5f)
         buttonLabel(canvas, c.hitX, c.hitY, c.hitR, "HIT")
-        buttonBase(canvas, c.dekeX, c.dekeY, c.dekeR, press[3], K_8B5CF6)
-        iconZigzag(canvas, c.dekeX, c.dekeY - c.dekeR * 0.2f, c.dekeR * 0.66f)
-        buttonLabel(canvas, c.dekeX, c.dekeY, c.dekeR, "DEKE")
-        val cd = c.dekeCooldownFrac()
-        if (cd > 0f) {
-            pStroke.color = Color.argb(220, 255, 255, 255); pStroke.strokeWidth = dp(3f)
-            rect.set(c.dekeX - c.dekeR - dp(4f), c.dekeY - c.dekeR - dp(4f), c.dekeX + c.dekeR + dp(4f), c.dekeY + c.dekeR + dp(4f))
-            canvas.drawArc(rect, -90f, 360f * cd, false, pStroke)
-        }
 
         if (c.shootDown && hasPuck) {
             val ch = c.currentCharge()
@@ -849,10 +861,13 @@ class HudRenderer(private val density: Float) {
         val r = r0 * (1f - 0.08f * press)
         pFill.color = Color.argb(60, 0, 0, 0)
         canvas.drawCircle(x, y + dp(3f), r, pFill)
-        pFill.color = Color.argb((55 + 110 * press).toInt(), Color.red(tint), Color.green(tint), Color.blue(tint))
+        pFill.color = Color.argb((110 + 90 * press).toInt(), Color.red(tint), Color.green(tint), Color.blue(tint))
         canvas.drawCircle(x, y, r, pFill)
         pFill.color = Color.argb((45 + 30 * press).toInt(), 255, 255, 255)
         canvas.drawCircle(x, y, r, pFill)
+        // subtle inner highlight on the upper half
+        pFill.color = Color.argb((38 * (1f - press)).toInt(), 255, 255, 255)
+        canvas.drawCircle(x, y - r * 0.28f, r * 0.62f, pFill)
         pStroke.color = Color.argb((200 + 55 * press).toInt(), 255, 255, 255)
         pStroke.strokeWidth = dp(2.5f)
         canvas.drawCircle(x, y, r - dp(1.2f), pStroke)
@@ -1106,6 +1121,7 @@ class HudRenderer(private val density: Float) {
     /** Goal band + pregame splash + final trophy, over everything except the pause button. */
     fun drawOverlays(canvas: Canvas, w: World) {
         drawGoalBand(canvas, w)
+        drawFaceoffBand(canvas, w)
         drawIntro(canvas, w)
         drawFinal(canvas, w)
         drawShootoutHint(canvas, w)
@@ -1164,6 +1180,70 @@ class HudRenderer(private val density: Float) {
         pTextL.textSize = dp(13f)
         pTextL.color = K_FDE68A
         canvas.drawText(celebSub, tx, top + bh - dp(11f), pTextL)
+        canvas.restore()
+    }
+
+    private var foPhase: Phase? = null
+    private var foStart = 0f
+    private var foLabel = ""
+    private var foScoreKey = -1
+    private var foScoreStr = ""
+
+    /** Lower third at faceoffs and between periods: both teams with crests and the score. */
+    private fun drawFaceoffBand(canvas: Canvas, w: World) {
+        if (w.phase != foPhase) {
+            foPhase = w.phase
+            foStart = anim
+            foScoreKey = -1
+            foLabel = if (w.phase == Phase.PERIOD_END) "END OF " + w.periodText() else if (w.overtime) "OVERTIME FACEOFF" else w.periodText() + " PERIOD"
+        }
+        if (w.phase != Phase.FACEOFF && w.phase != Phase.PERIOD_END) return
+        if (w.isShootout || introT >= 0f || celebT >= 0f) return
+        val key = w.teams[0].score * 100 + w.teams[1].score
+        if (key != foScoreKey) {
+            foScoreKey = key
+            sb.setLength(0); sb.append(w.teams[0].score).append("  -  ").append(w.teams[1].score)
+            foScoreStr = sb.toString()
+        }
+        val inP = easeOut(((anim - foStart) / 0.3f).coerceIn(0f, 1f))
+        val outP = if (w.phaseTimer < 0.3f) (w.phaseTimer / 0.3f).coerceIn(0f, 1f) else 1f
+        val k = inP * outP
+        if (k <= 0.01f) return
+        val x0 = sw * 0.20f
+        val x1 = sw * 0.80f
+        val bh = dp(56f)
+        val top = sh * 0.78f + (1f - k) * dp(30f)
+        val blockW = dp(120f)
+        val sk = dp(12f)
+        val a = (255 * k).toInt()
+        canvas.saveLayerAlpha(x0 - dp(10f), top - dp(6f), x1 + dp(10f), top + bh + dp(10f), a)
+        path.reset()
+        path.moveTo(x0 + sk, top); path.lineTo(x1, top); path.lineTo(x1 - sk, top + bh); path.lineTo(x0, top + bh); path.close()
+        pFill.color = Color.argb(235, 8, 14, 28)
+        canvas.drawPath(path, pFill)
+        for (i in 0..1) {
+            val info = w.teams[i].info
+            pFill.color = info.primary
+            path.reset()
+            if (i == 0) {
+                path.moveTo(x0 + sk, top); path.lineTo(x0 + blockW + sk, top); path.lineTo(x0 + blockW, top + bh); path.lineTo(x0, top + bh)
+            } else {
+                path.moveTo(x1 - blockW, top); path.lineTo(x1, top); path.lineTo(x1 - sk, top + bh); path.lineTo(x1 - blockW - sk, top + bh)
+            }
+            path.close()
+            canvas.drawPath(path, pFill)
+            val bx = if (i == 0) x0 + blockW * 0.5f + sk * 0.5f else x1 - blockW * 0.5f - sk * 0.5f
+            pFill.color = info.secondary
+            rect.set(if (i == 0) x0 + blockW else x1 - blockW - sk, top + bh - dp(4f), if (i == 0) x0 + blockW + sk else x1 - blockW, top + bh)
+            drawCrest(canvas, bx - dp(26f), top + bh / 2f, dp(32f), info)
+            pTextL.textSize = dp(16f); pTextL.color = info.text
+            canvas.drawText(info.abbr, bx - dp(6f), top + bh / 2f + dp(6f), pTextL)
+        }
+        val cx = (x0 + x1) / 2f
+        pTextC.color = K_FDE68A; pTextC.textSize = dp(12f)
+        canvas.drawText(foLabel, cx, top + dp(22f), pTextC)
+        pTextC.color = Color.WHITE; pTextC.textSize = dp(20f)
+        canvas.drawText(foScoreStr, cx, top + dp(45f), pTextC)
         canvas.restore()
     }
 

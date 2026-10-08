@@ -38,7 +38,7 @@ public final class SoundManager {
             "puck_hit", "pass", "pickup", "faceoff", "wall_bounce", "post", "body_hit",
             "save", "whistle", "horn", "crowd_loop", "cheer", "skate1", "skate2",
             "organ_rally", "jingle_goal", "jingle_period", "jingle_win", "jingle_lose",
-            "button_click", "one_timer", "gasp", "penalty", "fire", "deke", "glass", "pad_stack"
+            "button_click", "one_timer", "gasp", "penalty", "fire", "deke", "glass", "pad_stack", "boo"
         ]
         for name in soundNames {
             if let url = findSoundURL(name: name) {
@@ -89,7 +89,7 @@ public final class SoundManager {
         1.0 + (rng.nextFloat() * 2.0 - 1.0) * amount
     }
 
-    public func handle(_ event: GameEvent) {
+    public func handle(_ event: GameEvent, team: Int = -1, localTeam: Int = -1) {
         guard enabled else { return }
         switch event {
         case .shot:
@@ -122,16 +122,37 @@ public final class SoundManager {
             playSound("body_hit", level: 1.0, rate: jitter(0.1))
         case .whistle:
             playSound("whistle", level: 0.9)
+            MusicManager.shared.duck(level: 0.35, duration: 1.5)
         case .penalty:
             playSound("penalty", level: 1.0)
+            MusicManager.shared.duck(level: 0.35, duration: 2.0)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+                guard let self = self else { return }
+                if team < 0 || localTeam < 0 || team == localTeam {
+                    self.playSound("boo", level: 0.75, rate: self.jitter(0.03))
+                } else {
+                    self.playSound("cheer", level: 0.4, rate: self.jitter(0.03))
+                }
+            }
         case .horn:
             playSound("horn", level: 1.0)
+            MusicManager.shared.duck(level: 0.2, duration: 4.0)
         case .goal:
-            playSound("cheer", level: 1.0)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
-                self?.playSound("jingle_goal", level: 0.9)
+            MusicManager.shared.duck(level: 0.2, duration: 4.0)
+            if team >= 0 && localTeam >= 0 && team != localTeam {
+                // Goal scored against local team: opponent cheering and home fans booing
+                playSound("cheer", level: 0.3)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                    self?.playSound("boo", level: 0.8, rate: 0.93)
+                }
+            } else {
+                playSound("cheer", level: 1.0)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+                    self?.playSound("jingle_goal", level: 0.9)
+                }
             }
         case .periodEnd:
+            MusicManager.shared.duck(level: 0.25, duration: 3.5)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
                 self?.playSound("jingle_period", level: 0.85)
             }
@@ -151,6 +172,8 @@ public final class SoundManager {
             playSound("glass", level: 1.0, rate: jitter(0.05))
         case .goalieSaveMove:
             playSound("pad_stack", level: 0.9, rate: jitter(0.08))
+        case .icing:
+            break
         }
     }
 

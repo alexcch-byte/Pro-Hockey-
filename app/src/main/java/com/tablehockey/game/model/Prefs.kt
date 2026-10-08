@@ -29,6 +29,15 @@ object Prefs {
 
     private const val KEY_TOURNAMENT = "tournament_state"
     private const val KEY_ARENA = "arena_type"
+    private const val KEY_LEAGUE = "league"
+
+    /** Which club group the team pickers show: TeamInfo.LEAGUE_CALGARY (Timbits) or LEAGUE_NHL. */
+    fun league(ctx: Context): String =
+        if (prefs(ctx).getString(KEY_LEAGUE, null) == TeamInfo.LEAGUE_NHL) TeamInfo.LEAGUE_NHL else TeamInfo.LEAGUE_CALGARY
+
+    fun setLeague(ctx: Context, league: String) {
+        prefs(ctx).edit().putString(KEY_LEAGUE, league).apply()
+    }
 
     fun arenaType(ctx: Context): ArenaType {
         val name = prefs(ctx).getString(KEY_ARENA, ArenaType.INDOOR.name)

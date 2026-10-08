@@ -13,7 +13,7 @@ public final class NetworkSession {
     public func clear() {
         host?.stop()
         guest?.disconnect()
-        host = null
-        guest = null
+        host = nil
+        guest = nil
     }
 }

@@ -4,17 +4,152 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- center line -->
+
+    <!-- 1. "On Fire" Supersonic Flame Plumes behind Puck -->
+    <!-- Outer Crimson Flame -->
     <path
-        android:fillColor="#D8323C"
-        android:pathData="M50,24 L58,24 L58,84 L50,84 Z" />
-    <!-- center circle -->
+        android:fillColor="#E11D48"
+        android:pathData="M54,16 Q41,30 36,46 Q44,58 54,58 Q64,58 72,46 Q67,30 54,16 Z" />
+
+    <!-- Vibrant Orange Mid Flame -->
     <path
-        android:strokeColor="#2E86FF"
-        android:strokeWidth="3"
-        android:pathData="M54,38 A16,16 0 1 1 53.9,38 Z" />
-    <!-- puck -->
+        android:fillColor="#F97316"
+        android:pathData="M54,22 Q44,34 40,48 Q47,56 54,56 Q61,56 68,48 Q64,34 54,22 Z" />
+
+    <!-- Brilliant Gold Core Flame -->
     <path
-        android:fillColor="#F4F7FA"
-        android:pathData="M54,46 A8,8 0 1 1 53.9,46 Z" />
+        android:fillColor="#FBBF24"
+        android:pathData="M54,28 Q47,38 44,48 Q49,54 54,54 Q59,54 64,48 Q61,38 54,28 Z" />
+
+    <!-- Cyan Electric Accents -->
+    <path
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="1.2"
+        android:pathData="M42,42 L34,26 M66,42 L74,26" />
+
+    <!-- 2. Championship Golden Stars across the top -->
+    <!-- Center Big Star -->
+    <path
+        android:fillColor="#FFD700"
+        android:pathData="M54,14 L55.5,18 L59.5,18.5 L56.5,21.5 L57.5,25.5 L54,23.5 L50.5,25.5 L51.5,21.5 L48.5,18.5 L52.5,18 Z" />
+
+    <!-- Left Flanking Star -->
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M37,20 L38.2,23 L41.2,23.4 L39,25.6 L39.6,28.6 L37,27 L34.4,28.6 L35,25.6 L32.8,23.4 L35.8,23 Z" />
+
+    <!-- Right Flanking Star -->
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M71,20 L72.2,23 L75.2,23.4 L73,25.6 L73.6,28.6 L71,27 L68.4,28.6 L69,25.6 L66.8,23.4 L69.8,23 Z" />
+
+    <!-- 3. Crossed Hockey Sticks -->
+    <!-- Stick 1: Top-Left to Bottom-Right Shaft -->
+    <path
+        android:fillColor="#212631"
+        android:pathData="M23,26 L26,24 L75,76 L72,78 Z" />
+    <!-- Stick 1 Specular Highlight Line -->
+    <path
+        android:strokeColor="#4A5568"
+        android:strokeWidth="0.8"
+        android:pathData="M24,25.5 L73.5,77" />
+    <!-- Stick 1 Grip Stripes -->
+    <path
+        android:strokeColor="#FFC107"
+        android:strokeWidth="1.2"
+        android:pathData="M26,28 L28,26 M29,31 L31,29 M32,34 L34,32" />
+
+    <!-- Stick 1 Blade: Sweeps to bottom-right along ice -->
+    <path
+        android:fillColor="#F1F5F9"
+        android:pathData="M72,78 L88,78 Q93,76 95,71 L94,68 Q90,73 86,75 L75,76 Z" />
+    <!-- Stick 1 Blade Tape Lines -->
+    <path
+        android:strokeColor="#94A3B8"
+        android:strokeWidth="0.8"
+        android:pathData="M78,74.5 L79,77.5 M82,73 L83,76.5 M86,71.5 L87,75" />
+
+    <!-- Stick 2: Top-Right to Bottom-Left Shaft -->
+    <path
+        android:fillColor="#1B202A"
+        android:pathData="M85,26 L82,24 L33,76 L36,78 Z" />
+    <!-- Stick 2 Specular Highlight Line -->
+    <path
+        android:strokeColor="#3E4756"
+        android:strokeWidth="0.8"
+        android:pathData="M84,25.5 L34.5,77" />
+    <!-- Stick 2 Grip Stripes -->
+    <path
+        android:strokeColor="#FFC107"
+        android:strokeWidth="1.2"
+        android:pathData="M82,28 L80,26 M79,31 L77,29 M76,34 L74,32" />
+
+    <!-- Stick 2 Blade: Sweeps to bottom-left along ice -->
+    <path
+        android:fillColor="#F8FAFC"
+        android:pathData="M36,78 L20,78 Q15,76 13,71 L14,68 Q18,73 22,75 L33,76 Z" />
+    <!-- Stick 2 Blade Tape Lines -->
+    <path
+        android:strokeColor="#94A3B8"
+        android:strokeWidth="0.8"
+        android:pathData="M30,74.5 L29,77.5 M26,73 L25,76.5 M22,71.5 L21,75" />
+
+    <!-- 4. Prominent 3D Vulcanized Hockey Puck -->
+    <!-- Puck Contact Shadow -->
+    <path
+        android:fillColor="#800A0D12"
+        android:pathData="M31,64 A23,12 0 1,0 77,64 A23,12 0 1,0 31,64 Z" />
+
+    <!-- 3D Puck Cylinder Side / Rim (Height) -->
+    <path
+        android:fillColor="#12151B"
+        android:pathData="M32,56 C32,64 76,64 76,56 L76,61 C76,69 32,69 32,61 Z" />
+
+    <!-- Knurled Tread Grip Ticks on Rim -->
+    <path
+        android:strokeColor="#0A0C0F"
+        android:strokeWidth="1"
+        android:pathData="M38,60 L38,65 M44,61.5 L44,66.5 M50,62 L50,67 M56,62 L56,67 M62,61.5 L62,66.5 M68,60 L68,65" />
+
+    <!-- Puck Top Face (Tilted Ellipse) -->
+    <path
+        android:fillColor="#252A35"
+        android:strokeColor="#3F4657"
+        android:strokeWidth="1"
+        android:pathData="M32,56 A22,11.5 0 1,0 76,56 A22,11.5 0 1,0 32,56 Z" />
+
+    <!-- Beveled Inner Groove -->
+    <path
+        android:fillColor="#1C2028"
+        android:strokeColor="#111318"
+        android:strokeWidth="0.8"
+        android:pathData="M35,56 A19,9.5 0 1,0 73,56 A19,9.5 0 1,0 35,56 Z" />
+
+    <!-- Metallic Gold Trim Ring -->
+    <path
+        android:strokeColor="#FFC107"
+        android:strokeWidth="1.2"
+        android:pathData="M38,56 A16,8 0 1,0 70,56 A16,8 0 1,0 38,56 Z" />
+
+    <!-- Golden Championship Shield in Puck Center -->
+    <path
+        android:fillColor="#FFD700"
+        android:pathData="M48,51 L60,51 L58,58 L54,63 L50,58 Z" />
+
+    <!-- Inner Shield Shade -->
+    <path
+        android:fillColor="#D97706"
+        android:pathData="M49,52 L59,52 L57.5,57.5 L54,61.5 L50.5,57.5 Z" />
+
+    <!-- White 5-Point Star inside Shield -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,53.5 L54.8,55.5 L57,55.8 L55.4,57.2 L55.8,59.2 L54,58.2 L52.2,59.2 L52.6,57.2 L51,55.8 L53.2,55.5 Z" />
+
+    <!-- Specular Gloss Sheen on Puck Lip -->
+    <path
+        android:strokeColor="#80FFFFFF"
+        android:strokeWidth="1"
+        android:pathData="M34,55 Q42,47 56,47" />
+
 </vector>

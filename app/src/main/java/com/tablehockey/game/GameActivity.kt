@@ -84,10 +84,10 @@ class GameActivity : AppCompatActivity() {
         val btnPull = sliders.findViewById<com.google.android.material.button.MaterialButton>(R.id.btnPullGoalie)
         val initialPulled = gameView.isGoaliePulled()
         btnPull?.text = if (initialPulled) "RETURN GOALIE TO CREASE" else "PULL GOALIE (EXTRA ATTACKER)"
+        btnPull?.visibility = if (gameView.isShootout()) android.view.View.GONE else android.view.View.VISIBLE
         btnPull?.setOnClickListener {
             val nowPulled = gameView.togglePullGoalie()
             btnPull.text = if (nowPulled) "RETURN GOALIE TO CREASE" else "PULL GOALIE (EXTRA ATTACKER)"
-            soundManager.playClick()
         }
 
         val btnArena = sliders.findViewById<com.google.android.material.button.MaterialButton>(R.id.btnToggleArena)

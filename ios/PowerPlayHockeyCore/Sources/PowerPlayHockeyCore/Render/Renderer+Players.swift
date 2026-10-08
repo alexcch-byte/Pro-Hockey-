@@ -24,29 +24,60 @@ extension Renderer {
             canvas.drawCircle(x, y, r * 2.2 * pulse, ringGlow)
             canvas.drawCircle(x, y, r * 2.2 * pulse, ringPaint)
         }
-        canvas.save()
-        canvas.translate(x, y)
-        var rot = CGFloat(s.facing) * 180 / .pi
-        if s.dekeTimer > 0 {
-            rot += CGFloat(s.dekeDir) * (CGFloat(s.dekeTimer) / 0.38) * 22
-        }
-        // Dynamic edge carving / banking lean into turns
-        let latSpd = -CGFloat(s.vx) * sin(CGFloat(s.facing)) + CGFloat(s.vy) * cos(CGFloat(s.facing))
-        let bankAngle = min(max(latSpd * 1.25, -16), 16)
-        canvas.rotate(rot + bankAngle)
 
-        let stunned = s.stunTimer > 0
-        if stunned {
-            // Flat on the ice.
-            canvas.rotate(90)
-            canvas.scale(1.45, 0.72)
+        var drawnSprite = false
+        if !s.isGoalie && s.stunTimer <= 0 && s.swingTimer <= 0 && charge <= 0.05 && s.dekeTimer <= 0 {
+            let latSpd = -CGFloat(s.vx) * sin(CGFloat(s.facing)) + CGFloat(s.vy) * cos(CGFloat(s.facing))
+            let bankAngle = min(max(latSpd * 1.25, -16), 16)
+            let effFacing = CGFloat(s.facing) + bankAngle * .pi / 180
+            let fIdx = facingIndex(effFacing)
+            let moving = s.speed > 2
+            let strideCycle = CGFloat(s.stride) * 1.3 / (2 * .pi)
+            var norm = strideCycle.truncatingRemainder(dividingBy: 1.0)
+            if norm < 0 { norm += 1.0 }
+            let sFrame = moving ? Int(norm * 6.0) % 6 : 0
+            if let img = skaterSprites[s.team][sFrame][fIdx] {
+                let size: CGFloat = 14.0
+                let halfSize: CGFloat = 7.0
+                canvas.drawImage(img, in: CGRect(x: x - halfSize, y: y - halfSize, width: size, height: size))
+                drawnSprite = true
+            }
+        } else if s.isGoalie && s.stunTimer <= 0 && s.dekeTimer <= 0 && s.pokeTimer <= 0 {
+            let stance = (s.goalieAction == .padStack) ? 2 : (s.butterfly ? 1 : 0)
+            let fIdx = facingIndex(CGFloat(s.facing))
+            if let img = goalieSprites[s.team][stance][fIdx] {
+                let size: CGFloat = 14.0
+                let halfSize: CGFloat = 7.0
+                canvas.drawImage(img, in: CGRect(x: x - halfSize, y: y - halfSize, width: size, height: size))
+                drawnSprite = true
+            }
         }
-        if s.isGoalie {
-            drawGoalieBody(canvas, s, info, goalieShaderFor(s.team))
-        } else {
-            drawSkaterBody(canvas, s, info, skaterShaderFor(s.team), controlled ? charge : 0)
+
+        if !drawnSprite {
+            canvas.save()
+            canvas.translate(x, y)
+            var rot = CGFloat(s.facing) * 180 / .pi
+            if s.dekeTimer > 0 {
+                rot += CGFloat(s.dekeDir) * (CGFloat(s.dekeTimer) / 0.38) * 22
+            }
+            // Dynamic edge carving / banking lean into turns
+            let latSpd = -CGFloat(s.vx) * sin(CGFloat(s.facing)) + CGFloat(s.vy) * cos(CGFloat(s.facing))
+            let bankAngle = min(max(latSpd * 1.25, -16), 16)
+            canvas.rotate(rot + bankAngle)
+
+            let stunned = s.stunTimer > 0
+            if stunned {
+                // Flat on the ice.
+                canvas.rotate(90)
+                canvas.scale(1.45, 0.72)
+            }
+            if s.isGoalie {
+                drawGoalieBody(canvas, s, info, goalieShaderFor(s.team))
+            } else {
+                drawSkaterBody(canvas, s, info, skaterShaderFor(s.team), controlled ? charge : 0)
+            }
+            canvas.restore()
         }
-        canvas.restore()
 
         if world.isOnFire(s.team) {
             // Flickering fire particles trailing behind the skater

@@ -51,6 +51,21 @@ def knee_limit(x, knee=0.7, ceiling=0.98):
     return y
 
 
+def declick(x):
+    """One-shot edges: a sample that starts well off zero gets a 0.5 ms fade-in
+    and one that is cut off while still audible gets a 4 ms fade-out, so
+    neither end can click. Loops are never passed through here."""
+    x = x.copy()
+    pk = np.max(np.abs(x)) or 1.0
+    a = max(2, int(0.0005 * SR))
+    if abs(x[0]) > 0.04 * pk:
+        x[:a] *= np.linspace(0.0, 1.0, a, endpoint=False)
+    b = max(2, int(0.004 * SR))
+    if np.max(np.abs(x[-b:])) > 0.004 * pk:
+        x[-b:] *= np.linspace(1.0, 0.0, b)
+    return x
+
+
 def save(name, data, peak=0.9, level=None):
     """Writes 16-bit mono WAV at the current rate.
 
@@ -74,6 +89,8 @@ def save(name, data, peak=0.9, level=None):
         data = out
         if abs(loudness_db(data) - level) > 0.3:
             note = f"  (limited; target {level:.1f})"
+    if not name.startswith(("music_", "crowd_loop", "crowd_roar", "wind_loop")):
+        data = declick(data)
     pcm = (np.clip(data, -1, 1) * 32767).astype("<i2")
     path = os.path.join(OUT, name)
     with wave.open(path, "wb") as w:
@@ -839,6 +856,10 @@ def sfx_shot(v, heavy=False):
          + bandpass(r.uniform(-1, 1, n), 2500, 11000) * hit_env(n, 0.003, 0.05 * p) * 0.3 * p)
     if heavy:
         x += thump(n, 170, 70, 18, 0.08) * 0.5 + burst(n, 0.006, 250, 2000, r) * 0.7
+    # stick-flex whip: a short rising-bright hiss riding the first 40 ms, for a crisper crack
+    t = t_axis(n)
+    whip = highpass(r.uniform(-1, 1, n), 3200) * np.sin(np.pi * np.clip(t / 0.04, 0, 1)) * (t < 0.04)
+    x += whip * 0.18 * p
     return trim(soft_clip(x, 1.3))
 
 
@@ -904,7 +925,8 @@ def sfx_hit(v):
 
 def sfx_save(v):
     """v0: puck into the pads, a deep foam-and-leather thump.
-    v1: glove save, a leather smack and the pocket snapping shut."""
+    v1: glove save, a leather smack and the pocket snapping shut.
+    v2: blocker / leg-pad stop, a heavier knock."""
     r = np.random.default_rng(800 + v)
     n = seconds(0.42)
     k = r.uniform(0.92, 1.08)
@@ -913,6 +935,12 @@ def sfx_save(v):
              + modes(n, [190 * k, 300 * k, 450 * k], [0.05, 0.035, 0.022], [0.5, 0.45, 0.3])
              + modes(n, [700, 1650], [0.006, 0.004], [0.35, 0.12])
              + burst(n, 0.0006, 2000, 8000, r) * 0.2)
+    elif v == 2:
+        # blocker/leg-pad stop: a heavier, lower slap with a short plastic knock
+        x = (bandpass(r.uniform(-1, 1, n), 150, 1500) * hit_env(n, 0.001, 0.03)
+             + modes(n, [160 * k, 250 * k, 380 * k], [0.06, 0.04, 0.03], [0.55, 0.45, 0.3])
+             + thump(n, 200 * k, 90, 35, 0.05) * 0.4
+             + modes(n, [900, 2100], [0.006, 0.004], [0.3, 0.1]))
     else:
         x = (bandpass(r.uniform(-1, 1, n), 700, 4500) * hit_env(n, 0.0005, 0.007)
              + modes(n, [230 * k, 360 * k], [0.04, 0.025], [0.45, 0.3])
@@ -1120,12 +1148,16 @@ def sfx_faceoff():
     return trim(x)
 
 
-def sfx_pickup():
-    """Puck settling onto the tape of a blade."""
-    r = np.random.default_rng(1100)
+def sfx_pickup(v=0):
+    """Puck settling onto the tape of a blade, with a stick tap on top so it
+    still reads on a small speaker."""
+    r = np.random.default_rng(1100 + v * 17)
     n = seconds(0.12)
-    return trim(modes(n, [520, 1180, 2300], [0.012, 0.007, 0.004], [0.5, 0.25, 0.1])
-                + burst(n, 0.0005, 1500, 9000, r) * 0.3)
+    k = 1.0 if v == 0 else r.uniform(0.9, 1.12)
+    x = (modes(n, [520 * k, 1180 * k, 2300 * k], [0.012, 0.007, 0.004], [0.5, 0.25, 0.1])
+         + burst(n, 0.0005, 1500, 9000, r) * 0.3)
+    x += modes(n, [1450 * k, 2650 * k, 4100 * k], [0.006, 0.004, 0.002], [0.45, 0.3, 0.12])
+    return trim(x)
 
 
 def sfx_click():
@@ -1228,6 +1260,60 @@ def sfx_pad_stack():
     return slap + slap_crunch + slide
 
 
+def sfx_whistle_short():
+    """Offside / icing: a short double tweet, clearly different from the long
+    trilled whistle used for everything else."""
+    r = np.random.default_rng(1301)
+    out = np.zeros(seconds(0.42))
+    for st, dur, f in ((0.0, 0.15, 2650.0), (0.2, 0.17, 2750.0)):
+        m = seconds(dur)
+        tm = t_axis(m)
+        trill = 0.6 + 0.4 * np.sign(np.sin(2 * np.pi * 38 * tm))
+        tone = (np.sin(2 * np.pi * f * tm) + 0.6 * np.sin(2 * np.pi * f * 1.28 * tm)
+                + 0.25 * np.sin(2 * np.pi * f * 2.0 * tm))
+        breath = bandpass(r.uniform(-1, 1, m), 2000, 6000) * 0.2
+        put(out, seconds(st), (tone * trill + breath) * adsr(m, 0.008, 0.02, 0.7, 0.03, 0.9))
+    return out
+
+
+def sfx_deke_swish():
+    """A lateral skate swish: bright noise sweeping up through the bands as the
+    blade bites, with a stick tick in the middle. Smooth onset, no click."""
+    r = np.random.default_rng(1302)
+    dur = 0.3
+    n = seconds(dur)
+    t = t_axis(n)
+    u = t / dur
+    centre = 0.3 + 2.8 * u
+    x = np.zeros(n)
+    for i, (lo, hi) in enumerate(((900, 1800), (1800, 3200), (3200, 5400), (5400, 8500), (8500, 12000))):
+        x += bandpass(r.uniform(-1, 1, n), lo, hi) * np.exp(-0.5 * ((i - centre) / 0.8) ** 2)
+    x = x / np.max(np.abs(x)) * np.sin(np.pi * u ** 0.75) ** 1.4
+    m = seconds(0.08)
+    tick = modes(m, [1400, 2600], [0.01, 0.006], [0.6, 0.3]) + burst(m, 0.0008, 1500, 9000, r) * 0.4
+    put(x, seconds(0.11), tick, 0.55)
+    return x
+
+
+def sfx_click_soft():
+    """UI tap: a short, round tick (the old square-wave chirp was harsh)."""
+    n = seconds(0.07)
+    t = t_axis(n)
+    x = np.sin(2 * np.pi * 1500 * t) * np.exp(-t / 0.012) + 0.5 * np.sin(2 * np.pi * 3000 * t) * np.exp(-t / 0.006)
+    return x * np.minimum(1.0, t / 0.0006)
+
+
+def sfx_toggle():
+    """UI toggle: two quick ticks stepping up."""
+    n = seconds(0.11)
+    out = np.zeros(n)
+    for at, f in ((0.0, 1100.0), (0.045, 1650.0)):
+        m = seconds(0.05)
+        tm = t_axis(m)
+        put(out, seconds(at), np.sin(2 * np.pi * f * tm) * np.exp(-tm / 0.01) * np.minimum(1.0, tm / 0.0006))
+    return out
+
+
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
 
@@ -1266,11 +1352,14 @@ if __name__ == "__main__":
     save("tail_dark.wav", room_tail(False), level=-17.0)
     save("whistle.wav", sfx_whistle(), 0.85)
     save("penalty.wav", sfx_penalty(), 0.85)
-    save("button_click.wav", sfx_click(), 0.7)
+    save("button_click.wav", sfx_click_soft(), level=-14.0)   # was a -10.9 dB square chirp; softer on purpose
     save("fire.wav", sfx_fire(), 0.9)
-    save("deke.wav", sfx_deke(), 0.85)
+    sfx_deke()   # old deke is discarded; drawn only so the shared random stream (glass, pad stack) stays put
+    save("deke.wav", sfx_deke_swish(), level=-12.5)
     save("glass.wav", sfx_glass(), 0.95)
     save("pad_stack.wav", sfx_pad_stack(), 0.85)
+    save("whistle_short.wav", sfx_whistle_short(), level=-11.5)
+    save("ui_toggle.wav", sfx_toggle(), level=-14.0)
 
     # Impacts and skates at 44.1 kHz: the snap of a stick and the sizzle of
     # a blade live in the top octave.
@@ -1287,8 +1376,11 @@ if __name__ == "__main__":
         save(name + ".wav", sfx_hit(v), level=-16.0)
     save("save.wav", sfx_save(0), level=-17.0)
     save("save_2.wav", sfx_save(1), level=-17.0)
+    save("save_3.wav", sfx_save(2), level=-17.0)
     for v in range(4):
         save(f"skate{v + 1}.wav", sfx_skate(v), level=-18.5)
     save("faceoff.wav", sfx_faceoff(), level=-18.0)
-    save("pickup.wav", sfx_pickup(), level=-23.0)
+    save("pickup.wav", sfx_pickup(0), level=-23.0)
+    save("pickup_2.wav", sfx_pickup(1), level=-23.0)
+    save("pickup_3.wav", sfx_pickup(2), level=-23.0)
 

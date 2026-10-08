@@ -15,6 +15,12 @@ enum class GoalieAction { NONE, BUTTERFLY, PAD_STACK }
 class Skater(val team: Int, val index: Int, val role: Role, val number: Int) {
     val isGoalie: Boolean get() = role == Role.G
 
+    /** True for the goalie who is actually playing goal (a pulled goalie is just an extra skater). */
+    fun actsAsGoalie(w: World): Boolean = role == Role.G && !w.goaliePulled[team]
+
+    /** Mirrors world.goaliePulled for the physics layer (set by Simulation each tick). */
+    @JvmField var pulled = false
+
     var x = 0f
     var y = 0f
     var vx = 0f

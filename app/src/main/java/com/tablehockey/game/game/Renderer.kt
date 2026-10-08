@@ -146,8 +146,14 @@ class Renderer(private val density: Float) {
     private val sprayInner = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
     private val numberPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD; textSize = 1.7f }
     private val numberShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { textAlign = Paint.Align.CENTER; typeface = Typeface.DEFAULT_BOLD; textSize = 1.7f; color = Color.parseColor("#0B1220") }
-    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 0.3f; color = Color.parseColor("#FDE047") }
-    private val ringGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(60, 253, 224, 71) }
+    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 0.3f; color = Color.parseColor("#22C55E") }
+    private val ringInner = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 0.15f; color = Color.argb(200, 187, 247, 208) }
+    private val ringGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(70, 34, 197, 94) }
+    private val markerPath = Path()
+    private val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#22C55E") }
+    private val markerEdge = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Color.WHITE }
+    private val faceoffFill = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val logoRing = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; color = Color.WHITE }
     private val puckPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#0A0A0A") }
     private val puckBevelFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#2A2F38") }
     private val puckRim = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#3A3A3A"); style = Paint.Style.STROKE; strokeWidth = 0.12f }
@@ -656,6 +662,7 @@ class Renderer(private val density: Float) {
         hud.drawBanner(canvas, world)
         if (controls != null) hud.drawControls(canvas, world, localTeam, controls)
         drawPauseButton(canvas)
+        drawPullButton(canvas, world, localTeam)
         hud.drawOverlays(canvas, world)
     }
 
@@ -686,6 +693,17 @@ class Renderer(private val density: Float) {
         }
         if (world.phase == Phase.FACEOFF) {
             val r = 2.2f + 0.6f * sin(animTime * 8f)
+            val fk = camera.ppf(world.faceoffY)
+            val fcx = camera.px(world.faceoffX, world.faceoffY)
+            val fcy = camera.py(world.faceoffY)
+            tmpRect.set(fcx - 9f * fk, fcy - 9f * fk * camera.vk, fcx + 9f * fk, fcy + 9f * fk * camera.vk)
+            val leftTeam = if (world.teams[0].ownGoalX < 0f) 0 else 1
+            val li = world.teams[leftTeam].info.primary
+            val ri = world.teams[1 - leftTeam].info.primary
+            faceoffFill.color = Color.argb(90, Color.red(li), Color.green(li), Color.blue(li))
+            canvas.drawArc(tmpRect, 90f, 180f, true, faceoffFill)
+            faceoffFill.color = Color.argb(90, Color.red(ri), Color.green(ri), Color.blue(ri))
+            canvas.drawArc(tmpRect, 270f, 180f, true, faceoffFill)
             faceoffPulse.alpha = 140
             faceoffPulse.strokeWidth = 0.25f * camera.ppf(world.faceoffY)
             groundOval(canvas, world.faceoffX, world.faceoffY, r, faceoffPulse)
@@ -814,12 +832,19 @@ class Renderer(private val density: Float) {
         canvas.drawLine(Rink.BLUE_LINE_X, -Rink.HALF_W, Rink.BLUE_LINE_X, Rink.HALF_W, blueLine)
         canvas.drawLine(0f, -Rink.HALF_W, 0f, Rink.HALF_W, centerLine)
 
-        logoPaint.color = world.teams[0].info.primary
-        logoPaint.alpha = 34
-        canvas.drawCircle(0f, 0f, 10f, logoPaint)
-        logoText.color = world.teams[0].info.primary
-        logoText.alpha = 70
-        canvas.drawText(world.teams[0].info.abbr, 0f, 2.6f, logoText)
+        val hi = world.teams[0].info
+        logoPaint.color = hi.primary
+        logoPaint.alpha = 140
+        canvas.drawCircle(0f, 0f, 12f, logoPaint)
+        logoRing.strokeWidth = 0.6f
+        logoRing.color = Color.WHITE
+        canvas.drawCircle(0f, 0f, 12f, logoRing)
+        logoRing.strokeWidth = 0.35f
+        logoRing.color = hi.secondary
+        canvas.drawCircle(0f, 0f, 10.2f, logoRing)
+        logoText.color = hi.text
+        logoText.alpha = 235
+        canvas.drawText(hi.abbr, 0f, 2.6f, logoText)
         canvas.drawCircle(0f, 0f, Rink.FACEOFF_R, circleBlue)
         canvas.drawCircle(0f, 0f, 1f, dotBlue)
 
@@ -1196,9 +1221,11 @@ class Renderer(private val density: Float) {
         val sy = camera.py(s.y)
         if (controlled) {
             val pulse = 1f + 0.06f * sin(animTime * 6f)
-            ringPaint.strokeWidth = 0.3f * k
-            groundOval(canvas, s.x, s.y, r * 2.2f * pulse, ringGlow)
-            groundOval(canvas, s.x, s.y, r * 2.2f * pulse, ringPaint)
+            ringPaint.strokeWidth = 0.42f * k
+            ringInner.strokeWidth = 0.18f * k
+            groundOval(canvas, s.x, s.y, r * 2.4f * pulse, ringGlow)
+            groundOval(canvas, s.x, s.y, r * 2.4f * pulse, ringPaint)
+            groundOval(canvas, s.x, s.y, r * 1.8f * pulse, ringInner)
         }
         var ang = s.facing
         if (s.dekeTimer > 0f) ang += s.dekeDir * (s.dekeTimer / 0.38f) * 0.38f
@@ -1206,7 +1233,7 @@ class Renderer(private val density: Float) {
         val stunned = s.stunTimer > 0f
         val scale = k / ch.pxPerFt
         val spr: Bitmap
-        if (s.isGoalie) {
+        if (s.actsAsGoalie(world)) {
             val stance = when {
                 s.goalieAction == GoalieAction.PAD_STACK -> if (s.padStackDir >= 0f) 2 else 3
                 s.goalieAction == GoalieAction.BUTTERFLY || s.butterfly -> 1
@@ -1230,6 +1257,21 @@ class Renderer(private val density: Float) {
             spr = skaterSpr[s.team][idx] ?: ch.skater(info, fi, frame, false).also { skaterSpr[s.team][idx] = it }
         }
         drawBillboard(canvas, ch, spr, sx, sy, scale)
+
+        if (controlled) {
+            // Small downward triangle above the head.
+            val bob = sin(animTime * 6f) * 0.25f * k
+            val ty = sy - 7.6f * k + bob
+            val tw = 0.8f * k
+            markerPath.reset()
+            markerPath.moveTo(sx - tw, ty - tw * 1.1f)
+            markerPath.lineTo(sx + tw, ty - tw * 1.1f)
+            markerPath.lineTo(sx, ty + tw * 0.4f)
+            markerPath.close()
+            markerEdge.strokeWidth = 0.14f * k
+            canvas.drawPath(markerPath, markerPaint)
+            canvas.drawPath(markerPath, markerEdge)
+        }
 
         if (world.isOnFire(s.team)) {
             for (j in 0..3) {
@@ -1347,6 +1389,37 @@ class Renderer(private val density: Float) {
         hudText.textSize = dp(18f)
         hudText.color = Color.WHITE
         canvas.drawText("II", x + s / 2f, y + s * 0.68f, hudText)
+    }
+
+    /** Set by the view: false for network clients (no input path for it) so the pill is hidden. */
+    @Volatile var pullPillEnabled = false
+
+    private fun pullShown(w: World, localTeam: Int) =
+        pullPillEnabled && localTeam >= 0 && !w.isShootout && w.phase != Phase.GAME_OVER
+
+    private fun pullRect(): RectF {
+        val s = dp(40f)
+        val wd = dp(104f)
+        val right = camera.screenW - s - dp(10f) - dp(8f)
+        pullRectF.set(right - wd, dp(10f), right, dp(10f) + s)
+        return pullRectF
+    }
+    private val pullRectF = RectF()
+
+    private fun drawPullButton(canvas: Canvas, w: World, localTeam: Int) {
+        if (!pullShown(w, localTeam)) return
+        val r = pullRect()
+        val pulled = w.goaliePulled[localTeam]
+        hudBack.let { canvas.drawRoundRect(r, dp(8f), dp(8f), it) }
+        hudText.textSize = dp(12f)
+        hudText.color = if (pulled) Color.parseColor("#FCA5A5") else Color.WHITE
+        canvas.drawText(if (pulled) "GOALIE IN" else "PULL GOALIE", r.centerX(), r.centerY() + dp(4.5f), hudText)
+    }
+
+    fun isPullHit(x: Float, y: Float, w: World, localTeam: Int): Boolean {
+        if (!pullShown(w, localTeam)) return false
+        val r = pullRect()
+        return x >= r.left - dp(6f) && x <= r.right + dp(6f) && y >= r.top - dp(6f) && y <= r.bottom + dp(6f)
     }
 
     fun isPauseHit(x: Float, y: Float): Boolean {

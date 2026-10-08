@@ -57,6 +57,7 @@ class WifiLobbyActivity : AppCompatActivity() {
     private lateinit var radioHostPeriod: RadioGroup
     private lateinit var radioConnection: RadioGroup
     private lateinit var spinnerHostTeam: Spinner
+    private var teamIdx = IntArray(0)
     private lateinit var spinnerGuestTeam: Spinner
     private lateinit var editHostIp: EditText
     private lateinit var manualIpRow: LinearLayout
@@ -110,13 +111,15 @@ class WifiLobbyActivity : AppCompatActivity() {
         btnScan = findViewById(R.id.btnScan)
         btnStartHosting = findViewById(R.id.btnStartHosting)
 
-        val adapter = ArrayAdapter(this, R.layout.item_spinner, TeamInfo.ALL.map { TeamInfo.label(it) }).apply {
+        // Club list follows the league chosen on Match Setup; the indices sent to the guest are TeamInfo.ALL indices.
+        teamIdx = TeamInfo.indicesFor(com.tablehockey.game.model.Prefs.league(this))
+        val adapter = ArrayAdapter(this, R.layout.item_spinner, teamIdx.map { TeamInfo.ALL[it].fullName }).apply {
             setDropDownViewResource(R.layout.item_spinner_dropdown)
         }
         spinnerHostTeam.adapter = adapter
         spinnerGuestTeam.adapter = adapter
-        spinnerHostTeam.setSelection(TeamInfo.DEFAULT_HOME)
-        spinnerGuestTeam.setSelection(TeamInfo.DEFAULT_AWAY)
+        spinnerHostTeam.setSelection(0)
+        spinnerGuestTeam.setSelection(1)
 
         if (!BluetoothSupport.isAvailable(this)) {
             findViewById<View>(R.id.connBluetooth).isEnabled = false
@@ -189,9 +192,11 @@ class WifiLobbyActivity : AppCompatActivity() {
             R.id.hostPeriod5 -> 300
             else -> 120
         }
-        var home = spinnerHostTeam.selectedItemPosition
-        var away = spinnerGuestTeam.selectedItemPosition
-        if (home == away) away = (away + 1) % TeamInfo.ALL.size
+        val homePos = spinnerHostTeam.selectedItemPosition.coerceIn(0, teamIdx.size - 1)
+        var awayPos = spinnerGuestTeam.selectedItemPosition.coerceIn(0, teamIdx.size - 1)
+        if (homePos == awayPos) awayPos = (awayPos + 1) % teamIdx.size
+        val home = teamIdx[homePos]
+        val away = teamIdx[awayPos]
         return MatchConfig(
             mode = mode,
             homeTeam = home,

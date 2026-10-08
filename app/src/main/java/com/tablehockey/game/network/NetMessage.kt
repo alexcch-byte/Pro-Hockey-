@@ -46,6 +46,7 @@ object NetCodec {
         put("ps", i.pass)
         put("ht", i.hit)
         put("dk", i.deke)
+        if (i.deke && i.dekeSign != 0f) put("dd", i.dekeSign.toDouble())
     }.toString()
 
     /** Merges a received input into [dst]; one-shot presses accumulate until consumed. */
@@ -61,7 +62,10 @@ object NetCodec {
         }
         if (obj.optBoolean("ps", false)) dst.pass = true
         if (obj.optBoolean("ht", false)) dst.hit = true
-        if (obj.optBoolean("dk", false)) dst.deke = true
+        if (obj.optBoolean("dk", false)) {
+            dst.deke = true
+            dst.dekeSign = obj.optDouble("dd", 0.0).toFloat()
+        }
     }
 
     private const val F_STUN = 1

@@ -68,6 +68,10 @@ final class Skater {
     var aiTargetX: Float = 0
     var aiTargetY: Float = 0
     var aiChaser: Bool = false
+    /// Seconds before this carrier may roll another seam-pass look.
+    var seamCooldown: Float = 0
+    /// Index of the opposing skater this defender is covering man-to-man, or -1.
+    var markId: Int = -1
 
     // Goalie active save moves
     var butterfly: Bool = false
@@ -109,7 +113,7 @@ final class Skater {
         facing = face
         stunTimer = 0; pokeTimer = 0; checkTimer = 0; dekeTimer = 0
         actionCooldown = 0; pickupCooldown = 0; swingTimer = 0
-        aiTimer = 0; aiTargetX = px; aiTargetY = py; aiChaser = false
+        aiTimer = 0; aiTargetX = px; aiTargetY = py; aiChaser = false; seamCooldown = 0; markId = -1
         butterfly = false; goalieAction = .none; goalieActionTimer = 0
         netX = px; netY = py; netFacing = face
     }

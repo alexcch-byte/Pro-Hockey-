@@ -20,7 +20,7 @@ public enum NetCodec {
     private static let allEvents: [GameEvent] = [
         .shot, .pass, .boards, .post, .goal, .hit, .poke, .save, .whistle, .horn,
         .faceoffDrop, .pickup, .periodEnd, .gameOver, .faceoffSet, .oneTimer,
-        .penalty, .onFire, .deke, .glassShatter, .goalieSaveMove
+        .penalty, .onFire, .deke, .glassShatter, .goalieSaveMove, .icing
     ]
 
     public static func configJson(home: Int, away: Int, periodLength: Int) -> String {

@@ -274,7 +274,8 @@ public struct TournamentView: View {
                             aiDifficulty: .medium,
                             soundEnabled: Prefs.soundEnabled(),
                             musicEnabled: Prefs.musicEnabled(),
-                            arenaType: Prefs.arenaType()
+                            arenaType: Prefs.arenaType(),
+                            isTournament: true
                         )
                         onPlayMatch(config)
                     }) {

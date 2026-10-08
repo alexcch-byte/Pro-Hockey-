@@ -16,22 +16,40 @@ import com.tablehockey.game.model.TeamInfo
 
 class MatchSettingsActivity : AppCompatActivity() {
 
+    private var teamIdx = IntArray(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_match_settings)
 
         val spinnerHome = findViewById<Spinner>(R.id.spinnerHomeTeam)
         val spinnerAway = findViewById<Spinner>(R.id.spinnerAwayTeam)
-        val names = TeamInfo.ALL.map { TeamInfo.label(it) }
-        val adapter = ArrayAdapter(this, R.layout.item_spinner, names).apply {
-            setDropDownViewResource(R.layout.item_spinner_dropdown)
-        }
-        spinnerHome.adapter = adapter
-        spinnerAway.adapter = adapter
         com.tablehockey.game.model.TeamStyleStore.ensureLoaded(this)
         val favourite = com.tablehockey.game.model.TeamStyleStore.favourite(this)
-        spinnerHome.setSelection(favourite)
-        spinnerAway.setSelection(if (favourite == TeamInfo.DEFAULT_AWAY) TeamInfo.DEFAULT_HOME else TeamInfo.DEFAULT_AWAY)
+        val radioLeague = findViewById<RadioGroup>(R.id.radioLeague)
+
+        // Repopulates both pickers from one league; spinner positions index into `teamIdx` (TeamInfo.ALL indices).
+        fun populate(league: String) {
+            teamIdx = TeamInfo.indicesFor(league)
+            val names = teamIdx.map { TeamInfo.ALL[it].fullName }
+            val adapter = ArrayAdapter(this, R.layout.item_spinner, names).apply {
+                setDropDownViewResource(R.layout.item_spinner_dropdown)
+            }
+            spinnerHome.adapter = adapter
+            spinnerAway.adapter = adapter
+            val favPos = teamIdx.indexOf(favourite)
+            val homePos = if (favPos >= 0) favPos else 0
+            spinnerHome.setSelection(homePos)
+            spinnerAway.setSelection(if (homePos == 1) 0 else 1)
+        }
+        val league0 = Prefs.league(this)
+        radioLeague.check(if (league0 == TeamInfo.LEAGUE_NHL) R.id.leagueNhl else R.id.leagueTimbits)
+        populate(league0)
+        radioLeague.setOnCheckedChangeListener { _, id ->
+            val l = if (id == R.id.leagueNhl) TeamInfo.LEAGUE_NHL else TeamInfo.LEAGUE_CALGARY
+            Prefs.setLeague(this, l)
+            populate(l)
+        }
 
         val radioPeriod = findViewById<RadioGroup>(R.id.radioPeriodLength)
         val radioDifficulty = findViewById<RadioGroup>(R.id.radioDifficulty)
@@ -45,9 +63,11 @@ class MatchSettingsActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnStart).setOnClickListener {
             MusicManager.click(this)
-            var home = spinnerHome.selectedItemPosition
-            var away = spinnerAway.selectedItemPosition
-            if (home == away) away = (away + 1) % TeamInfo.ALL.size
+            val homePos = spinnerHome.selectedItemPosition.coerceIn(0, teamIdx.size - 1)
+            var awayPos = spinnerAway.selectedItemPosition.coerceIn(0, teamIdx.size - 1)
+            if (homePos == awayPos) awayPos = (awayPos + 1) % teamIdx.size
+            val home = teamIdx[homePos]
+            val away = teamIdx[awayPos]
             val periodLength = when (radioPeriod.checkedRadioButtonId) {
                 R.id.period1 -> 60
                 R.id.period3 -> 180

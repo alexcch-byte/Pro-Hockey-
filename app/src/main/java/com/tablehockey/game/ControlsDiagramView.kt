@@ -43,8 +43,8 @@ class ControlsDiagramView @JvmOverloads constructor(
     private val yoke = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#F5D130"); style = Paint.Style.STROKE; strokeWidth = dp(4f); strokeCap = Paint.Cap.ROUND }
     private val stick = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#3B2A1A"); style = Paint.Style.STROKE; strokeWidth = dp(3f); strokeCap = Paint.Cap.ROUND }
     private val puck = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#0A0A0A") }
-    private val you = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#FDE047"); style = Paint.Style.STROKE; strokeWidth = dp(3f) }
-    private val youGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(70, 253, 224, 71) }
+    private val you = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#22C55E"); style = Paint.Style.STROKE; strokeWidth = dp(3f) }
+    private val youGlow = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(70, 34, 197, 94) }
     private val rect = RectF()
     private val path = Path()
 
@@ -67,7 +67,7 @@ class ControlsDiagramView @JvmOverloads constructor(
         canvas.drawCircle(w * 0.15f, h * 0.2f, dp(30f), circle)
         canvas.restore()
 
-        // Skater with the yellow "you" ring, carrying the puck.
+        // Skater with the green "you" ring, carrying the puck.
         val sx = w * 0.56f
         val sy = h * 0.42f
         val r = dp(15f)

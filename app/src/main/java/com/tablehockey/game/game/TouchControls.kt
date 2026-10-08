@@ -5,8 +5,8 @@ import android.view.MotionEvent
 import kotlin.math.hypot
 
 /**
- * Virtual joystick (left half of the screen) plus SHOOT / PASS / HIT / DEKE buttons
- * (bottom right). Touch events arrive on the UI thread; the game loop pulls a
+ * Virtual joystick (left half of the screen) plus SHOOT / PASS / HIT buttons
+ * (bottom right). Deke is a stick flick (see [updateJoystick]). Touch events arrive on the UI thread; the game loop pulls a
  * snapshot with [snapshotInto], which also consumes the one-shot presses.
  */
 class TouchControls(private val density: Float) {
@@ -29,11 +29,6 @@ class TouchControls(private val density: Float) {
     var shootX = 0f; var shootY = 0f; var shootR = 50f * density
     var passX = 0f; var passY = 0f; var passR = 42f * density
     var hitX = 0f; var hitY = 0f; var hitR = 42f * density
-    var dekeX = 0f; var dekeY = 0f; var dekeR = 38f * density
-    @Volatile var dekeDown = false
-    private var dekePointer = -1
-    private var dekeTapReadyAt = 0L
-    @Volatile var dekeEnabled = true
     /** True while the controlled skater has the puck; the stick-flick auto-deke only fires then. */
     @Volatile var carrying = false
     @Volatile var shootDown = false
@@ -45,10 +40,13 @@ class TouchControls(private val density: Float) {
     private var shootDownTime = 0L
 
     // Automatic Deke detection on rapid joystick movement / flick
-    private var prevJoyTime = 0L
-    private var prevJoyMx = 0f
-    private var prevJoyMy = 0f
+    private val histT = LongArray(HIST)
+    private val histX = FloatArray(HIST)
+    private val histY = FloatArray(HIST)
+    private var histN = 0
+    private var histHead = 0
     private var dekeCooldownUntil = 0L
+    private var dekeFlashUntil = 0L
 
     private var screenW = 1
     private var screenH = 1
@@ -56,7 +54,7 @@ class TouchControls(private val density: Float) {
 
     companion object {
         const val CHARGE_SECONDS = 0.75f
-        const val DEKE_TAP_LOCKOUT_MS = 600L
+        private const val HIST = 12
     }
 
     fun layout(w: Int, h: Int) {
@@ -69,13 +67,12 @@ class TouchControls(private val density: Float) {
         shootX = w - 95f * density; shootY = h - 95f * density
         passX = w - 215f * density; passY = h - 80f * density
         hitX = w - 105f * density; hitY = h - 215f * density
-        dekeX = w - 215f * density; dekeY = h - 192f * density
     }
 
-    /** 0 when the DEKE button is ready, otherwise the fraction of its short lockout still to run. */
-    fun dekeCooldownFrac(): Float {
-        val left = dekeTapReadyAt - SystemClock.elapsedRealtime()
-        return if (left <= 0L) 0f else (left / DEKE_TAP_LOCKOUT_MS.toFloat()).coerceIn(0f, 1f)
+    /** 1 right after a stick-flick deke fires, fading to 0 (for a brief joystick-ring flash). */
+    fun dekeFlash(): Float {
+        val left = dekeFlashUntil - SystemClock.elapsedRealtime()
+        return if (left <= 0L) 0f else (left / 220f).coerceIn(0f, 1f)
     }
 
     fun currentCharge(): Float {
@@ -102,8 +99,7 @@ class TouchControls(private val density: Float) {
         }
         joyPointer = -1; shootPointer = -1; passPointer = -1; hitPointer = -1
         joyActive = false; shootDown = false; passDown = false; hitDown = false
-        dekePointer = -1; dekeDown = false
-        prevJoyTime = 0L; prevJoyMx = 0f; prevJoyMy = 0f
+        histN = 0
     }
 
     /** Returns true when the event was consumed by a control. */
@@ -151,18 +147,6 @@ class TouchControls(private val density: Float) {
             synchronized(lock) { input.hit = true }
             return
         }
-        if (dekeEnabled && hypot(x - dekeX, y - dekeY) <= dekeR * 1.15f && dekePointer == -1) {
-            dekePointer = id
-            dekeDown = true
-            // Re-uses the existing deke input (same one the joystick flick sets); no gameplay change.
-            // The button has its own lockout (what the ring shows) and leaves the flick lockout alone.
-            val now = SystemClock.elapsedRealtime()
-            if (now >= dekeTapReadyAt) {
-                synchronized(lock) { input.deke = true }
-                dekeTapReadyAt = now + DEKE_TAP_LOCKOUT_MS
-            }
-            return
-        }
         if (x < screenW * 0.5f && y > topExclusion && joyPointer == -1) {
             joyPointer = id
             joyActive = true
@@ -170,9 +154,7 @@ class TouchControls(private val density: Float) {
             joyAnchorY = y
             joyKnobX = x
             joyKnobY = y
-            prevJoyTime = SystemClock.elapsedRealtime()
-            prevJoyMx = 0f
-            prevJoyMy = 0f
+            histN = 0
             synchronized(lock) { input.moveX = 0f; input.moveY = 0f }
         }
     }
@@ -197,31 +179,45 @@ class TouchControls(private val density: Float) {
             my = my / mag * scaled
         }
 
-        // Detect rapid flick / sharp direction change for automatic deke move
+        // Flick detection: compare against the stick position ~60-150 ms ago (ring buffer, no allocation).
         val now = SystemClock.elapsedRealtime()
-        val dtMs = now - prevJoyTime
-        if (dtMs in 25..220) {
-            val prevMag = hypot(prevJoyMx, prevJoyMy)
-            val curMag = hypot(mx, my)
-            if (carrying && dekeEnabled && curMag > 0.7f && now > dekeCooldownUntil) {
-                val deltaDist = hypot(mx - prevJoyMx, my - prevJoyMy)
-                val stickSpeed = deltaDist / (dtMs / 1000f)
-                val dot = if (prevMag > 0.28f && curMag > 0.28f) {
-                    (mx * prevJoyMx + my * prevJoyMy) / (curMag * prevMag)
-                } else 1f
-                // Deliberate full-throw reversal or a very fast flick only; ordinary thumb corrections stay normal moves.
-                val isSharpCut = (dot < -0.35f && prevMag > 0.6f && dtMs <= 150)
-                val isFastFlick = (stickSpeed > 11f && curMag > 0.75f)
-                if (isSharpCut || isFastFlick) {
-                    synchronized(lock) { input.deke = true }
-                    dekeCooldownUntil = now + 500L
+        if (carrying && now > dekeCooldownUntil && hypot(mx, my) > 0.6f) {
+            var i = 0
+            while (i < histN) {
+                val k = (histHead - 1 - i + HIST) % HIST
+                val age = now - histT[k]
+                if (age > 150L) break
+                if (age >= 40L) {
+                    val px = histX[k]; val py = histY[k]
+                    val pm = hypot(px, py)
+                    val cm = hypot(mx, my)
+                    if (pm > 0.35f) {
+                        val dot = (mx * px + my * py) / (cm * pm)
+                        val delta = hypot(mx - px, my - py)
+                        val rate = delta / (age / 1000f)
+                        // Reversal: thumb swung from one side of the pad to the other.
+                        val reversal = dot < -0.2f && pm > 0.55f && cm > 0.7f && delta > 1.0f
+                        // Sideways/diagonal flick: large AND fast swing (ordinary hard turns are slower).
+                        val swing = delta > 1.3f && rate > 8f && dot < 0.55f
+                        if (reversal || swing) {
+                            val cross = px * my - py * mx
+                            val sign = if (cross > 0.15f * pm * cm) 1f else if (cross < -0.15f * pm * cm) -1f else 0f
+                            synchronized(lock) { input.deke = true; input.dekeSign = sign }
+                            dekeCooldownUntil = now + 550L
+                            dekeFlashUntil = now + 220L
+                            break
+                        }
+                    }
                 }
+                i++
             }
         }
-        if (dtMs >= 25) {
-            prevJoyMx = mx
-            prevJoyMy = my
-            prevJoyTime = now
+        // Record sample (at most one per ~12 ms to cover the history window with HIST slots).
+        val last = (histHead - 1 + HIST) % HIST
+        if (histN == 0 || now - histT[last] >= 12L) {
+            histT[histHead] = now; histX[histHead] = mx; histY[histHead] = my
+            histHead = (histHead + 1) % HIST
+            if (histN < HIST) histN++
         }
 
         synchronized(lock) { input.moveX = mx; input.moveY = my }
@@ -232,9 +228,7 @@ class TouchControls(private val density: Float) {
             joyPointer -> {
                 joyPointer = -1
                 joyActive = false
-                prevJoyTime = 0L
-                prevJoyMx = 0f
-                prevJoyMy = 0f
+                histN = 0
                 synchronized(lock) { input.moveX = 0f; input.moveY = 0f }
             }
             shootPointer -> {
@@ -249,7 +243,6 @@ class TouchControls(private val density: Float) {
             }
             passPointer -> { passPointer = -1; passDown = false }
             hitPointer -> { hitPointer = -1; hitDown = false }
-            dekePointer -> { dekePointer = -1; dekeDown = false }
         }
     }
 }
