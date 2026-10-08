@@ -432,7 +432,7 @@ object TeamArt {
         path.close()
         c.drawPath(path, lit(-9f, 51f, 12f, 66f, 20f, pants))
         limb(c, 5f, 59f, 15f, 14f, 73f, 11.5f, pants)
-        c.drawCircle(14f, 73f, 5.2f, rad(12f, 71f, 6f, lighten(pants, 0.35f), shade(pants, 0.55f)))
+        c.drawCircle(14f, 73f, 4.6f, rad(12.4f, 71.4f, 6f, lighten(pants, 0.5f), withAlpha(pants, 0)))
         c.drawLine(10f, 60f, 15f, 70f, stroke(st.trim, 1.5f))
 
         // ---- far arm (behind the torso): shoulder -> elbow -> lower hand on the shaft

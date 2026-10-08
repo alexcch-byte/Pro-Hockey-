@@ -182,7 +182,7 @@ class CustomiseTeamActivity : AppCompatActivity() {
         val flow = newFlow()
         val patterns = JerseyPattern.values()
         for (p in patterns) {
-            val chip = ChipView(this, 50) { c, cx, cy, r -> TeamArt.drawPatternTile(c, cx, cy, r * 1.05f, style, p) }
+            val chip = ChipView(this, 56) { c, cx, cy, r -> TeamArt.drawPatternTile(c, cx, cy, r * 1.05f, style, p) }
             chip.chosen = style.pattern == p
             chip.contentDescription = p.label
             chip.setOnClickListener { edit(style.copy(pattern = p)) }
@@ -196,7 +196,7 @@ class CustomiseTeamActivity : AppCompatActivity() {
         val emblemStyles = CrestType.values().map { style.copy(crest = it) }
         for ((k, t) in CrestType.values().withIndex()) {
             val s = emblemStyles[k]
-            val chip = ChipView(this, 48) { c, cx, cy, r -> TeamArt.drawCrest(c, cx, cy, r * 1.25f, s, base.abbr) }
+            val chip = ChipView(this, 46) { c, cx, cy, r -> TeamArt.drawCrest(c, cx, cy, r * 1.25f, s, base.abbr) }
             chip.chosen = style.crest == t
             chip.contentDescription = t.label
             chip.setOnClickListener { edit(style.copy(crest = t)) }
@@ -207,7 +207,7 @@ class CustomiseTeamActivity : AppCompatActivity() {
         val frameStyles = CrestFrame.values().map { style.copy(frame = it) }
         for ((k, f) in CrestFrame.values().withIndex()) {
             val s = frameStyles[k]
-            val chip = ChipView(this, 48) { c, cx, cy, r -> TeamArt.drawCrest(c, cx, cy, r * 1.25f, s, base.abbr) }
+            val chip = ChipView(this, 46) { c, cx, cy, r -> TeamArt.drawCrest(c, cx, cy, r * 1.25f, s, base.abbr) }
             chip.chosen = style.frame == f
             chip.contentDescription = f.label
             chip.setOnClickListener { edit(style.copy(frame = f)) }
@@ -228,20 +228,14 @@ class CustomiseTeamActivity : AppCompatActivity() {
     // ------------------------------------------------------------------ helpers
 
     private fun addTargetRow(names: Array<String>, colors: IntArray, selected: Int, onPick: (Int) -> Unit) {
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val flow = newFlow()
         for (k in names.indices) {
-            val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            val chip = ChipView(this, 46) { c, cx, cy, r -> fillDot(c, cx, cy, r * 1.2f, colors[k]) }
+            val chip = ChipView(this, 52, names[k]) { c, cx, cy, r -> fillDot(c, cx, cy, r * 1.2f, colors[k]) }
             chip.chosen = selected == k
             chip.contentDescription = names[k]
             chip.setOnClickListener { onPick(k) }
-            col.addView(chip)
-            col.addView(smallLabel(names[k]).apply { textSize = 10f })
-            row.addView(col, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-                marginEnd = (10 * dp).toInt()
-            })
+            flow.addView(chip, chipParams())
         }
-        panel.addView(row)
     }
 
     private fun addLabel(s: String) = panel.addView(smallLabel(s))
@@ -283,7 +277,7 @@ class CustomiseTeamActivity : AppCompatActivity() {
         val flow = newFlow()
         val list = (listOf(base.primary, base.secondary) + PALETTE).distinct()
         for (col in list) {
-            val chip = ChipView(this, 34) { c, cx, cy, r -> fillDot(c, cx, cy, r * 1.25f, col) }
+            val chip = ChipView(this, 38) { c, cx, cy, r -> fillDot(c, cx, cy, r * 1.25f, col) }
             chip.chosen = col == current
             chip.setOnClickListener { onPick(col) }
             flow.addView(chip, chipParams())
