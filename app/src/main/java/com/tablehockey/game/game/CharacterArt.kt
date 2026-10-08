@@ -393,9 +393,10 @@ class CharacterArt(val pxPerFt: Float) {
     // ------------------------------------------------------------------ heads
 
     /** Head sprites are square, [headPx] on a side, with the helmet centre in the middle. */
-    val headPx = ceil(3.0f * pxPerFt).toInt()
+    val headPx = ceil(3.3f * pxPerFt).toInt()
 
     private fun bodyScale(referee: Boolean) = if (referee) 1.08f else BODY_SC
+    private val HEAD_SC = 1.2f
 
     /** Pixel offset (from the feet anchor, at sprite scale) of the head centre for a facing. */
     fun headDx(facing: Int, fallen: Boolean, referee: Boolean): Float {
@@ -426,14 +427,20 @@ class CharacterArt(val pxPerFt: Float) {
         Color.parseColor("#C9A24A"), Color.parseColor("#9A3F1B"), Color.parseColor("#8A8A8A")
     )
 
+    /** Adds a flat dot with an explicit paint order (smaller = further back), ignoring the facing-based depth. */
+    private fun flatAt(x: Float, y: Float, z: Float, d: Float, color: Int, depth: Float) {
+        parts.add(Part(FLAT, x, y, z, x, y, z, d, color, depth))
+    }
+
     /**
-     * A player's head: hair, helmet, ears, face (eyes with whites and pupils, brows, nose, mouth, cheek shading,
-     * optional stubble/beard, mouthguard and visor). The look is a pure function of (team, jersey number), so host and
-     * guest draw the same faces. Features sit in front of the helmet in 3D, so the painter's order hides them when the
-     * player faces away and leaves only hair, ears and the helmet back.
+     * A player's head, built to sit on the jersey collar: nape hair and ears tucked behind the helmet, the helmet,
+     * and (only when he faces the camera) a framed face: helmet brim, eye sockets, eyes with whites and pupils, brows,
+     * nose, mouth, cheek and chin shading, optional stubble/beard, mouthguard and visor. The look is a pure function
+     * of (team, jersey number), so host and guest draw the same faces. Facing away shows only hair, helmet and its
+     * team-colour back stripe.
      */
     fun head(info: TeamInfo, team: Int, number: Int, referee: Boolean, facing: Int): Bitmap {
-        begin(facing, bodyScale(referee) * 1.12f)
+        begin(facing, bodyScale(referee) * HEAD_SC)
         ox = headPx / 2f
         oy = headPx / 2f
         val h = mix(team * 1009 + number * 31 + 17)
@@ -450,53 +457,72 @@ class CharacterArt(val pxPerFt: Float) {
             hair = hairTones[if (hr < 28) 0 else if (hr < 58) 1 else if (hr < 76) 2 else if (hr < 88) 3 else if (hr < 95) 4 else 5]
             helmet = helmetOf(info)
         }
-        val beard = if (referee) 0 else { val b = r(3); if (b < 22) 2 else if (b < 48) 1 else 0 }   // 2 beard, 1 stubble
-        val visor = !referee && r(4) < 35
+        val beard = if (referee) 0 else { val b = r(3); if (b < 20) 2 else if (b < 46) 1 else 0 }   // 2 beard, 1 stubble
+        val visor = !referee && r(4) < 30
         val guard = !referee && r(5) < 30
-        val eyeY = 0.2f
         val dark = Color.parseColor("#1A1A22")
+        val collar = if (referee) Color.parseColor("#F1F5F9") else info.primary
+        val faceUp = sn > -0.15f          // the face can be seen
+        val side = sn < 0.4f && sn > -0.4f // near profile: show the camera-side ear on top of the helmet
 
-        // Hair at the back and nape: shows below the helmet from the front, covers the helmet's lower back from behind.
-        flat(-0.3f, 0f, -0.45f, 1.0f, hair)
-        // Ears peek out at the sides under the helmet.
+        // Behind everything: the jersey collar the head sits in, and the nape hair just below the helmet.
+        flatAt(-0.05f, 0f, -0.66f, 1.3f, collar, -30f)
+        flatAt(-0.05f, 0f, -0.66f, 0.7f, darken(skin, 0.85f), -29f)            // neck
+        flatAt(-0.22f, 0f, -0.42f, 0.98f, hair, -20f)
+        // Ears: tucked half behind the helmet from the front/back, fully visible on the near side in profile.
         for (sg in intArrayOf(1, -1)) {
-            flat(0f, sg * 0.78f, -0.2f, 0.34f, darken(skin, 0.9f))
-            flat(0f, sg * 0.78f, -0.2f, 0.17f, darken(skin, 0.7f))
+            val e = darken(skin, 0.92f)
+            if (side) {
+                val near = if (cs > 0f) -1 else 1
+                if (sg == near) {
+                    flat(0f, sg * 0.5f, -0.18f, 0.34f, e)
+                    flat(0f, sg * 0.5f, -0.18f, 0.16f, darken(skin, 0.7f))
+                }
+            } else {
+                flatAt(0f, sg * 0.74f, -0.18f, 0.34f, e, -10f)
+            }
         }
-        disc(0f, 0f, 0f, 1.5f, helmet)
-        if (!referee) {
-            // Team-colour stripe over the crown
-            line(0.45f, 0f, 0.55f, -0.45f, 0f, 0.62f, 0.14f, trimOf(info))
-        } else {
-            // Referee cap peak
-            cap(0.45f, 0f, 0.28f, 0.95f, 0f, 0.18f, 0.5f, Color.parseColor("#0B0F17"))
+        disc(0f, 0f, 0f, 1.58f, helmet)
+        if (!faceUp) {
+            // Back of the helmet: vent ridge in the club's trim colour plus a lighter centre line
+            line(-0.55f, 0f, 0.5f, -0.55f, 0f, -0.4f, 0.2f, if (referee) Color.parseColor("#24304A") else trimOf(info))
+            line(-0.57f, 0f, 0.45f, -0.57f, 0f, -0.35f, 0.07f, lighten(helmet, 0.4f))
         }
-        // Face.
-        disc(0.32f, 0f, -0.08f, 0.93f, skin)
-        // Sideburns
-        for (sg in intArrayOf(1, -1)) line(0.34f, sg * 0.42f, 0.0f, 0.34f, sg * 0.42f, -0.28f, 0.1f, hair)
-        // Cheek shading: lit on the side facing the light, darker opposite
-        flat(0.5f, -0.32f, -0.2f, 0.26f, lighten(skin, 0.38f))
-        flat(0.5f, 0.32f, -0.2f, 0.26f, darken(skin, 0.82f))
-        // Stubble / beard on the lower face
-        if (beard == 1) flat(0.52f, 0f, -0.4f, 0.62f, Color.argb(120, Color.red(hair), Color.green(hair), Color.blue(hair)))
-        if (beard == 2) {
-            flat(0.5f, 0f, -0.36f, 0.7f, hair)
-            flat(0.56f, 0f, -0.18f, 0.4f, darken(skin, 0.9f))
-        }
-        // Nose and mouth
-        flat(0.66f, 0f, -0.08f, 0.16f, darken(skin, 0.68f))
-        if (guard) line(0.6f, -0.13f, -0.31f, 0.6f, 0.13f, -0.31f, 0.13f, if (r(6) < 50) Color.WHITE else Color.parseColor("#FACC15"))
-        else line(0.6f, -0.13f, -0.31f, 0.6f, 0.13f, -0.31f, 0.07f, if (beard == 2) Color.parseColor("#C98B8B") else Color.parseColor("#7A2E2E"))
-        // Eyes: white, pupil, brow
-        for (sg in intArrayOf(1, -1)) {
-            flat(0.6f, sg * eyeY, 0.1f, 0.26f, Color.WHITE)
-            flat(0.64f, sg * eyeY, 0.1f, 0.14f, dark)
-            line(0.62f, sg * (eyeY - 0.13f), 0.3f, 0.62f, sg * (eyeY + 0.12f), 0.28f, 0.08f, darken(hair, 0.8f))
-        }
-        if (visor) {
-            flat(0.7f, 0f, 0.04f, 1.0f, Color.argb(95, 125, 211, 252))
-            line(0.72f, -0.45f, 0.33f, 0.72f, 0.45f, 0.33f, 0.07f, Color.argb(170, 200, 230, 255))
+        if (faceUp) {
+            // Face opening framed by the helmet brim.
+            disc(0.3f, 0f, -0.16f, 1.12f, skin)
+            flat(0.5f, -0.3f, 0.12f, 0.34f, lighten(skin, 0.28f))     // forehead highlight (light from the upper left)
+            flat(0.52f, -0.36f, -0.22f, 0.3f, lighten(skin, 0.3f))    // lit cheek
+            flat(0.52f, 0.36f, -0.22f, 0.3f, darken(skin, 0.82f))     // shaded cheek
+            flat(0.5f, 0f, -0.52f, 0.58f, darken(skin, 0.86f))        // jaw shadow
+            if (referee) {
+                cap(0.42f, -0.5f, 0.42f, 0.42f, 0.5f, 0.42f, 0.36f, helmet)   // cap band
+                cap(0.55f, -0.38f, 0.34f, 0.95f, 0.38f, 0.3f, 0.34f, helmet)  // cap peak
+            } else {
+                if (sn > 0.25f) line(0.5f, -0.36f, 0.36f, 0.5f, 0.36f, 0.36f, 0.26f, helmet)  // brim across the forehead
+            }
+            for (sg in intArrayOf(1, -1)) line(0.36f, sg * 0.5f, 0.0f, 0.36f, sg * 0.5f, -0.3f, 0.1f, hair)   // sideburns
+            if (beard == 1) flat(0.54f, 0f, -0.44f, 0.72f, Color.argb(110, Color.red(hair), Color.green(hair), Color.blue(hair)))
+            if (beard == 2) {
+                flat(0.52f, 0f, -0.44f, 0.9f, hair)
+                flat(0.62f, 0f, -0.2f, 0.34f, darken(skin, 0.88f))
+            }
+            // Eyes: dark socket, white, pupil, brow
+            for (sg in intArrayOf(1, -1)) {
+                flat(0.6f, sg * 0.22f, 0.05f, 0.32f, darken(skin, 0.8f))
+                flat(0.64f, sg * 0.22f, 0.05f, 0.23f, Color.WHITE)
+                flat(0.68f, sg * 0.22f, 0.05f, 0.14f, dark)
+                line(0.66f, sg * 0.1f, 0.25f, 0.66f, sg * 0.38f, 0.27f, 0.09f, darken(hair, 0.75f))
+            }
+            // Nose and mouth
+            flat(0.72f, 0f, -0.1f, 0.17f, darken(skin, 0.74f))
+            flat(0.74f, -0.03f, -0.03f, 0.1f, lighten(skin, 0.35f))
+            if (guard) line(0.66f, -0.12f, -0.34f, 0.66f, 0.12f, -0.34f, 0.11f, if (r(6) < 50) Color.parseColor("#38BDF8") else Color.parseColor("#F59E0B"))
+            else line(0.66f, -0.12f, -0.34f, 0.66f, 0.12f, -0.34f, 0.07f, if (beard == 2) Color.parseColor("#C98B8B") else Color.parseColor("#7A2E2E"))
+            if (visor && sn > 0.55f) {
+                flat(0.55f, 0f, -0.02f, 0.9f, Color.argb(80, 125, 211, 252))
+                line(0.57f, -0.34f, 0.3f, 0.57f, 0.34f, 0.3f, 0.07f, Color.argb(170, 210, 235, 255))
+            }
         }
 
         val bmp = Bitmap.createBitmap(headPx, headPx, Bitmap.Config.ARGB_8888)

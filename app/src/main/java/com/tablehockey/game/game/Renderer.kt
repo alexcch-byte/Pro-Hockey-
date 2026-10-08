@@ -530,15 +530,15 @@ class Renderer(private val density: Float) {
                         if (warmGen == gen && arr[idx] == null) arr[idx] = bmp else bmp.recycle()
                     }
                 }
+                for (tm in 0..1) for (pl in 0 until 6) for (f in 0 until nf) {
+                    val num = world.teams[tm].skaters[pl].number
+                    put(headSpr[tm], pl * nf + f) { art.head(infos[tm], tm, num, false, f) }
+                }
                 for (frame in 0 until CharacterArt.STRIDE_FRAMES) for (f in 0 until nf) for (tm in 0..1) {
                     put(skaterSpr[tm], frame * nf + f) { art.skater(infos[tm], f, frame, false) }
                 }
                 for (stance in 0..1) for (f in 0 until nf) for (tm in 0..1) {
                     put(goalieSpr[tm], stance * nf + f) { art.goalie(infos[tm], f, stance) }
-                }
-                for (tm in 0..1) for (pl in 0 until 6) for (f in 0 until nf) {
-                    val num = world.teams[tm].skaters[pl].number
-                    put(headSpr[tm], pl * nf + f) { art.head(infos[tm], tm, num, false, f) }
                 }
             } catch (_: Throwable) {
                 // Warming is only an optimisation; the lazy path still works.
@@ -1287,14 +1287,15 @@ class Renderer(private val density: Float) {
         }
 
         if (controlled) {
-            // Small downward triangle above the head.
+            // Small downward triangle floating above the head (follows the head, clear of the helmet).
             val bob = sin(animTime * 6f) * 0.25f * k
-            val ty = sy - 7.6f * k + bob
+            val mx = sx + ch.headDx(fi, fallenPose, false) * scale
+            val ty = sy + ch.headDy(fi, fallenPose, false) * scale - 2.0f * k + bob - 1.4f * k
             val tw = 0.8f * k
             markerPath.reset()
-            markerPath.moveTo(sx - tw, ty - tw * 1.1f)
-            markerPath.lineTo(sx + tw, ty - tw * 1.1f)
-            markerPath.lineTo(sx, ty + tw * 0.4f)
+            markerPath.moveTo(mx - tw, ty - tw * 1.1f)
+            markerPath.lineTo(mx + tw, ty - tw * 1.1f)
+            markerPath.lineTo(mx, ty + tw * 0.4f)
             markerPath.close()
             markerEdge.strokeWidth = 0.14f * k
             canvas.drawPath(markerPath, markerPaint)
