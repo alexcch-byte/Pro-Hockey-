@@ -185,6 +185,7 @@ object MusicManager {
     @Synchronized
     fun pause() {
         paused = true
+        try { anthemPlayer?.let { if (it.isPlaying) it.pause() } } catch (_: Exception) {}
         try { player?.let { if (it.isPlaying) it.pause() } } catch (_: Exception) {}
         try { outgoing?.let { if (it.isPlaying) it.pause() } } catch (_: Exception) {}
     }
@@ -192,6 +193,7 @@ object MusicManager {
     @Synchronized
     fun resume() {
         paused = false
+        try { anthemPlayer?.let { if (!it.isPlaying) it.start() } } catch (_: Exception) {}
         if (!enabled) return
         try { player?.let { if (!it.isPlaying) it.start() } } catch (_: Exception) {}
         try { outgoing?.let { if (!it.isPlaying) it.start() } } catch (_: Exception) {}
@@ -199,6 +201,7 @@ object MusicManager {
 
     @Synchronized
     fun stop() {
+        releaseAnthem()
         handler.removeCallbacks(restoreVolume)
         handler.removeCallbacks(fadeStep)
         generation++
@@ -220,6 +223,64 @@ object MusicManager {
         applyAll()
         handler.removeCallbacks(restoreVolume)
         handler.postDelayed(restoreVolume, millis)
+    }
+
+    private var anthemPlayer: MediaPlayer? = null
+    private var anthemLevel = 0f
+    private var anthemFadeLeft = 0
+    private val anthemFade = object : Runnable {
+        override fun run() {
+            synchronized(this@MusicManager) {
+                anthemFadeLeft -= 50
+                val p = anthemPlayer
+                if (p == null) return
+                if (anthemFadeLeft <= 0) {
+                    releaseAnthem()
+                } else {
+                    val v = anthemLevel * anthemFadeLeft / 400f
+                    try { p.setVolume(v, v) } catch (_: Exception) {}
+                    handler.postDelayed(this, 50)
+                }
+            }
+        }
+    }
+
+    private fun releaseAnthem() {
+        handler.removeCallbacks(anthemFade)
+        val p = anthemPlayer ?: return
+        anthemPlayer = null
+        try { p.stop() } catch (_: Exception) {}
+        try { p.release() } catch (_: Exception) {}
+        // give the game music back
+        handler.removeCallbacks(restoreVolume)
+        duckFactor = 1f
+        applyAll()
+    }
+
+    /** Plays the pre-game anthem once at the user's music level, ducking the game loop underneath it. */
+    @Synchronized
+    fun playAnthem(context: Context): Boolean {
+        releaseAnthem()
+        if (userVolume <= 0f) return false
+        val mp = try { MediaPlayer.create(context.applicationContext, R.raw.anthem_ocanada) } catch (_: Exception) { null } ?: return false
+        anthemLevel = (userVolume * 0.9f).coerceIn(0f, 1f)
+        try { mp.setVolume(anthemLevel, anthemLevel) } catch (_: Exception) {}
+        mp.setOnCompletionListener { synchronized(this) { if (anthemPlayer === mp) releaseAnthem() } }
+        anthemPlayer = mp
+        duckFactor = 0.05f
+        applyAll()
+        handler.removeCallbacks(restoreVolume)
+        if (!paused) try { mp.start() } catch (_: Exception) { releaseAnthem(); return false }
+        return true
+    }
+
+    /** Fades the anthem out over ~400 ms (tap to skip) and restores the game music. */
+    @Synchronized
+    fun stopAnthem() {
+        if (anthemPlayer == null) return
+        anthemFadeLeft = 400
+        handler.removeCallbacks(anthemFade)
+        handler.postDelayed(anthemFade, 50)
     }
 
     private fun applyAll() {

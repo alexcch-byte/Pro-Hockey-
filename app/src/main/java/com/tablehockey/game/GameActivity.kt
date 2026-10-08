@@ -47,6 +47,9 @@ class GameActivity : AppCompatActivity() {
         val server = if (config.mode == GameMode.WIFI_HOST) NetworkSession.host else null
         val client = if (config.mode == GameMode.WIFI_CLIENT) NetworkSession.guest else null
         gameView.tournament = intent.getBooleanExtra("IS_TOURNAMENT", false)
+        // Anthem: on a fresh match start only; in a tournament only before the first game of the series.
+        val firstGame = !gameView.tournament || (Prefs.getTournament(this)?.currentRound ?: 0) == 0
+        gameView.anthem = Prefs.anthemEnabled(this) && Prefs.musicVolume(this) > 0 && config.mode != GameMode.SHOOTOUT && firstGame
         gameView.configure(config, server, client)
 
         gameView.listener = object : GameView.GameListener {

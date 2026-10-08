@@ -1314,6 +1314,103 @@ def sfx_toggle():
     return out
 
 
+def anthem_ocanada():
+    """Pre-game anthem: an instrumental arrangement of the melody of "O Canada" (Calixa Lavallee, 1880,
+    public domain), eight bars in F major, 4/4, quarter = 84: the opening phrase ("O Canada, our home and
+    native land") and the closing phrase of the refrain, resolving to the tonic. Pitches and rhythm follow the
+    public-domain hymnal setting (Wikipedia / hymnary.org score, F major, 4/4); no lyrics, no recording.
+    Brass-like lead, organ-ish chord pad and a bass, with arena reverb. Uses its own filters only, so it draws
+    nothing from the shared random stream."""
+    bpm = 84
+    spb = 60.0 / bpm
+    # (note, beats) per bar; None = tie to the previous note is not used, every note is struck
+    melody = [
+        ("A4", 2), ("C5", 1.5), ("C5", 0.5),
+        ("F4", 3), ("G4", 1),
+        ("A4", 1), ("Bb4", 1), ("C5", 1), ("D5", 1),
+        ("G4", 4),
+        ("C5", 2), ("F5", 1.5), ("F5", 0.5),
+        ("D5", 1), ("Bb4", 1), ("A4", 1), ("G4", 1),
+        ("C5", 2), ("E4", 2),
+        ("F4", 4),
+    ]
+    bass = [
+        ("F3", 2), ("E3", 1.5), ("E3", 0.5),
+        ("D3", 3), ("C3", 1),
+        ("F3", 1), ("D3", 1), ("A2", 1), ("Bb2", 1),
+        ("C3", 4),
+        ("F3", 2), ("A3", 1.5), ("A3", 0.5),
+        ("Bb3", 1), ("G2", 1), ("A2", 1), ("Bb2", 1),
+        ("C3", 2), ("C3", 2),
+        ("F3", 4),
+    ]
+    F_ = ["A3", "C4", "F4"]
+    DM = ["A3", "D4", "F4"]
+    C_ = ["G3", "C4", "E4"]
+    BB = ["Bb3", "D4", "F4"]
+    GM = ["Bb3", "D4", "G4"]
+    chords = [
+        (F_, 4),
+        (DM, 3), (C_, 1),
+        (F_, 1), (DM, 1), (F_, 1), (BB, 1),
+        (C_, 4),
+        (F_, 4),
+        (BB, 1), (GM, 1), (F_, 1), (BB, 1),
+        (C_, 4),
+        (F_, 4),
+    ]
+    total = 32 * spb
+    tail = 2.4
+    out = np.zeros(seconds(total + tail))
+    local = np.random.default_rng(1980)
+
+    def place(w, start_beat, gain):
+        i = seconds(start_beat * spb)
+        out[i:i + len(w)] += w[:len(out) - i] * gain
+
+    # lead: sawtooth pair through brass-like resonances, delayed vibrato, swelling attack
+    beat = 0.0
+    for k, (name, d) in enumerate(melody):
+        last = k == len(melody) - 1
+        dur = d * spb * (1.0 if last else 0.93) + (1.2 if last else 0.0)
+        n = seconds(dur)
+        t = t_axis(n)
+        f = note_freq(name)
+        vib = 1 + 0.0035 * np.sin(2 * np.pi * 5.4 * t) * np.clip((t - 0.15) / 0.3, 0, 1)
+        x = _saw(f * vib) + 0.55 * _saw(f * vib * 1.0045)
+        y = (_formant(x, 650, 380) + 0.7 * _formant(x, 1300, 520) + 0.35 * _formant(x, 2500, 800)
+             + 0.25 * lowpass(x, 3200))
+        y /= np.max(np.abs(y)) + 1e-9
+        env = adsr(n, 0.05, 0.12, 0.0, 0.5 if last else 0.09, 0.9)
+        place(y * env, beat, 0.62)
+        beat += d
+    # pad: soft sawtooth chords an octave under the lead
+    beat = 0.0
+    for notes, d in chords:
+        n = seconds(d * spb + (1.4 if beat + d >= 32 else 0.05))
+        for nm in notes:
+            f = note_freq(nm)
+            x = lowpass(_saw(np.full(n, f)) + 0.5 * _saw(np.full(n, f * 1.003)), 1500)
+            place(x * adsr(n, 0.08, 0.1, 0.8, 0.35 if beat + d >= 32 else 0.08, 0.85), beat, 0.075)
+        beat += d
+    # bass: pulse plus triangle, plain quarter-note march feel
+    beat = 0.0
+    for nm, d in bass:
+        n = seconds(d * spb * 0.96 + (1.3 if beat + d >= 32 else 0.0))
+        f = note_freq(nm)
+        x = pulse(f, n, 0.25) * 0.5 + triangle(f, n)
+        place(x * adsr(n, 0.01, 0.08, 0.7, 0.12 if beat + d < 32 else 0.7, 0.8), beat, 0.34)
+        beat += d
+    # a soft snare tap on beats 2 and 4 keeps the march moving (own noise source)
+    for b in range(0, 31):
+        if b % 2 == 1:
+            n = seconds(0.07)
+            tap = bandpass(local.uniform(-1, 1, n), 1500, 6000) * decay(n, 0.02)
+            place(tap, b, 0.14)
+    out = add_room(out, 0.42, 1.4, bright=False, seed=33)
+    return soft_clip(out / np.max(np.abs(out)) * 0.9, 1.1)
+
+
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
 
@@ -1383,4 +1480,5 @@ if __name__ == "__main__":
     save("pickup.wav", sfx_pickup(0), level=-23.0)
     save("pickup_2.wav", sfx_pickup(1), level=-23.0)
     save("pickup_3.wav", sfx_pickup(2), level=-23.0)
-
+    set_rate(22050)
+    save("anthem_ocanada.wav", anthem_ocanada(), level=-11.5)

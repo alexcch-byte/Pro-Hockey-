@@ -38,6 +38,9 @@ class GameView @JvmOverloads constructor(
     var soundManager: SoundManager? = null
     /** Tournament match: ties are not allowed, overtime is uncapped. Set before [configure]. */
     var tournament = false
+    /** Pre-game anthem ceremony wanted for this match (setting on, music audible, not a shootout, first tournament game). */
+    var anthem = false
+    private var anthemPlaying = false
 
     private lateinit var config: MatchConfig
     private var configured = false
@@ -94,6 +97,7 @@ class GameView @JvmOverloads constructor(
         configured = true
         localTeam = if (config.mode == GameMode.WIFI_CLIENT) 1 else 0
         renderer.pullPillEnabled = config.mode != GameMode.WIFI_CLIENT
+        renderer.guest = config.mode == GameMode.WIFI_CLIENT
 
         if (config.mode != GameMode.WIFI_CLIENT) {
             createWorld(config.homeTeam, config.awayTeam, config.periodLengthSeconds)
@@ -155,7 +159,7 @@ class GameView @JvmOverloads constructor(
             w.controlled[1] = if (config.mode == GameMode.WIFI_HOST) 0 else -1
             val sim = Simulation(w, AiSettings.forDifficulty(config.aiDifficulty))
             sim.uncappedOvertime = tournament
-            sim.start()
+            sim.start(anthem && config.mode != GameMode.SHOOTOUT)
             simulation = sim
         }
         matchOverReported = false
@@ -242,6 +246,14 @@ class GameView @JvmOverloads constructor(
             }
             if (renderer.isPauseHit(event.x, event.y)) {
                 listener?.onPauseRequested()
+                return true
+            }
+            if (world?.phase == Phase.ANTHEM) {
+                // Tap anywhere skips the ceremony. Only the host can: a guest waits for the host's timer or tap.
+                if (config.mode != GameMode.WIFI_CLIENT) {
+                    simulation?.skipAnthem()
+                    audio { MusicManager.stopAnthem() }
+                }
                 return true
             }
             val w = world
@@ -392,12 +404,34 @@ class GameView @JvmOverloads constructor(
         }
         val tb = System.nanoTime()
         updateAmbience(w, dt)
+        updateAnthem(w)
         val tc = System.nanoTime()
         if (tc - ta > 15_000_000L) android.util.Log.d("PowerPlay", String.format("SLOWUPD host %.1f (sim %.1f ev %.1f) ambience %.1f", (tb - ta) / 1e6, dbgSim / 1e6, dbgEv / 1e6, (tc - tb) / 1e6))
         // Camera follows the puck (leading slightly into its travel).
         val p = w.puck
         val lead = if (p.carrier == null) 0.18f else 0.1f
         renderer.camera.follow(p.x + p.vx * lead, p.y * 0.85f + p.vy * lead * 0.5f, dt)
+    }
+
+    /** Starts the anthem audio when the pre-game ceremony begins and fades it out when the phase ends. */
+    private fun updateAnthem(w: World) {
+        if (w.phase == Phase.ANTHEM) {
+            if (!anthemPlaying) {
+                anthemPlaying = true
+if (anthem) {
+                    val ctx = context
+                    audio {
+                        if (!MusicManager.playAnthem(ctx)) {
+                            // No audio to wait for: don't hold the players for 24 silent seconds.
+                            synchronized(w) { if (simulation != null && w.phase == Phase.ANTHEM && w.phaseTimer > 2f) w.phaseTimer = 2f }
+                        }
+                    }
+                }
+            }
+        } else if (anthemPlaying) {
+            anthemPlaying = false
+            audio { MusicManager.stopAnthem() }
+        }
     }
 
     private fun updateHost(w: World, dt: Float) {
@@ -545,7 +579,7 @@ class GameView @JvmOverloads constructor(
     private fun updateAmbience(w: World, dt: Float) {
         val sm = soundManager
         sm?.updateMix(w, renderer.camera, dt)
-        if (sm != null && !crowdStarted && w.phase != Phase.GAME_OVER) {
+        if (sm != null && !crowdStarted && w.phase != Phase.GAME_OVER && w.phase != Phase.ANTHEM) {
             sm.startCrowd()
             crowdStarted = true
         }

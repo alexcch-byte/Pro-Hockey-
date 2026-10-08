@@ -46,6 +46,8 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         private const val STAT_OFFSIDE = 5
         private const val STAT_WHISTLE_IDX = 12
         const val FACEOFF_HOLD = 1.4f
+        /** Length of the pre-game anthem ceremony in seconds (the audio is about 25 s with its reverb tail). */
+        const val ANTHEM_HOLD = 24f
         const val WHISTLE_HOLD = 1.3f
         const val GOAL_HOLD = 3.2f
         const val PERIOD_HOLD = 3.5f
@@ -64,7 +66,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
 
     private var penaltyExtended = false
 
-    fun start() {
+    fun start(anthem: Boolean = false) {
         // Clean per-match state so a rematch never starts with a pulled goalie, armed icing, old stats or a penalty.
         if (world.penaltyTeam != -1) releasePenalty(quiet = true)
         for (sk in world.allSkaters) sk.inPenaltyBox = false
@@ -89,6 +91,11 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         } else {
             setupFaceoff(0f, 0f)
             world.showBanner(world.periodText() + " PERIOD", world.teams[0].info.fullName + " vs " + world.teams[1].info.fullName, 2.2f)
+            if (anthem) {
+                // Pre-game ceremony: players lined up, clock stopped, puck not dropped until it ends or is skipped.
+                world.phase = Phase.ANTHEM
+                world.phaseTimer = ANTHEM_HOLD
+            }
         }
     }
 
@@ -147,12 +154,26 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
                 if (w.phaseTimer <= 0f) startNextPeriod()
             }
             Phase.GAME_OVER -> coastAll(dt)
+            Phase.ANTHEM -> {
+                coastAll(dt)
+                w.phaseTimer -= dt
+                if (w.phaseTimer <= 0f) {
+                    w.phase = Phase.FACEOFF
+                    w.phaseTimer = FACEOFF_HOLD
+                    w.showBanner(w.periodText() + " PERIOD", w.teams[0].info.fullName + " vs " + w.teams[1].info.fullName, 1.6f)
+                }
+            }
             Phase.PLAY -> {
                 playStep(dt, inputs)
                 if (w.phase == Phase.PLAY && !w.isShootout) checkOffside()
             }
         }
         for (t in 0..1) inputs[t]?.clearPulses()
+    }
+
+    /** Ends the pre-game ceremony on the next step (a tap); the faceoff hold and puck drop follow as usual. */
+    fun skipAnthem() {
+        if (world.phase == Phase.ANTHEM) world.phaseTimer = 0f
     }
 
     private fun resetOffside() {

@@ -325,7 +325,7 @@ class HudRenderer(private val density: Float) {
         celebT = -1f; finalT = -1f; cn = 0
         bannerAge = 0f; lastBannerText = null
         val fresh = !w.isShootout && w.period == 1 && !w.overtime && lastScore[0] == 0 && lastScore[1] == 0 &&
-            w.phase == Phase.FACEOFF && w.clock >= w.periodLength - 1f
+            (w.phase == Phase.FACEOFF || w.phase == Phase.ANTHEM) && w.clock >= w.periodLength - 1f
         introT = if (fresh) 0f else -1f
         teamRef[0] = null; teamRef[1] = null
         clockKey = -1; shotsKey = -1
@@ -1123,6 +1123,7 @@ class HudRenderer(private val density: Float) {
         drawGoalBand(canvas, w)
         drawFaceoffBand(canvas, w)
         drawIntro(canvas, w)
+        drawAnthemHint(canvas, w)
         drawFinal(canvas, w)
         drawShootoutHint(canvas, w)
     }
@@ -1245,6 +1246,19 @@ class HudRenderer(private val density: Float) {
         pTextC.color = Color.WHITE; pTextC.textSize = dp(20f)
         canvas.drawText(foScoreStr, cx, top + dp(45f), pTextC)
         canvas.restore()
+    }
+
+    private val anthemHint = "O CANADA    -    TAP TO SKIP"
+    private val anthemWait = "O CANADA    -    WAITING FOR HOST"
+
+    /** Set for a network guest: it cannot skip the ceremony. */
+    var guest = false
+
+    /** Small caption at the bottom while the pre-game anthem plays. */
+    private fun drawAnthemHint(canvas: Canvas, w: World) {
+        if (w.phase != Phase.ANTHEM || introT >= 0f) return
+        val k = 0.7f + 0.3f * kotlin.math.sin(anim * 3f)
+        drawPill(canvas, sw / 2f, sh * 0.86f, dp(if (guest) 300f else 250f), dp(26f), Color.argb((200 * k).toInt(), 8, 14, 28), if (guest) anthemWait else anthemHint, Color.WHITE, 13f, true)
     }
 
     private fun drawIntro(canvas: Canvas, w: World) {

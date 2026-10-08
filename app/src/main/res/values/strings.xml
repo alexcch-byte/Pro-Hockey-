@@ -27,6 +27,7 @@
     <string name="settings_league">LEAGUE</string>
     <string name="league_timbits">TIMBITS</string>
     <string name="league_nhl">NHL</string>
+    <string name="settings_anthem">Play national anthem before the game</string>
     <string name="clubs_follow_league">Clubs follow the league chosen in Match Setup</string>
     <string name="settings_opponent">Opponent</string>
     <string name="settings_period_length">Period Length</string>
@@ -109,7 +110,7 @@ Without the puck: switch to the skater closest to the puck.</string>
     <string name="htp_hit">HIT</string>
     <string name="htp_hit_body">Tap to lunge into a body check. Knock the carrier down and the puck comes loose.</string>
     <string name="htp_rules">GAME FLOW</string>
-    <string name="htp_rules_body">Three periods on the clock, faceoffs after every whistle, goalies freeze pucks. Pick TIMBITS or NHL clubs under LEAGUE on Match Setup (Tournament and WiFi games use that choice). Offside: do not skate past the far blue line ahead of the puck, or play is stopped. Tied after three? Sudden-death overtime.</string>
+    <string name="htp_rules_body">Three periods on the clock, faceoffs after every whistle, goalies freeze pucks. Pick TIMBITS or NHL clubs under LEAGUE on Match Setup (Tournament and WiFi games use that choice). A short national anthem plays before the opening faceoff; tap to skip, or turn it off in Match Setup. Offside: do not skate past the far blue line ahead of the puck, or play is stopped. Tied after three? Sudden-death overtime.</string>
     <string name="htp_tip">The green ring marks the skater you control.</string>
     <string name="htp_done">Got it</string>
     <string name="controls_help">Left side: drag anywhere to skate.\n\nSHOOT: hold to wind up, release to fire. Push the stick up or down while shooting to pick a corner. Without the puck it pokes at the carrier.\n\nPASS: sends the puck to the teammate in the direction you are pushing. Without the puck it switches to the skater nearest the puck.\n\nHIT: lunge into a body check and knock the carrier off the puck.\n\nDeke: with the puck, flick the stick quickly. It dodges sideways.\n\nThree periods, sudden-death overtime if tied.</string>

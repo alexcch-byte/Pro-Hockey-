@@ -60,6 +60,9 @@ class MatchSettingsActivity : AppCompatActivity() {
             radioArena.check(R.id.arenaIndoor)
         }
         AudioSliders.bind(findViewById(R.id.audioSliders), this)
+        val checkAnthem = findViewById<android.widget.CheckBox>(R.id.checkAnthem)
+        checkAnthem.isChecked = Prefs.anthemEnabled(this)
+        checkAnthem.setOnCheckedChangeListener { _, on -> Prefs.setAnthemEnabled(this, on) }
 
         findViewById<Button>(R.id.btnStart).setOnClickListener {
             MusicManager.click(this)

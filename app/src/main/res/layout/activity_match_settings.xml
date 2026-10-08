@@ -154,6 +154,15 @@
                 <RadioButton android:id="@+id/arenaIndoor" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/arena_indoor" android:textColor="@color/text_primary" android:checked="true" />
                 <RadioButton android:id="@+id/arenaWinterPond" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/arena_winter_pond" android:textColor="@color/text_primary" />
             </RadioGroup>
+
+            <CheckBox
+                android:id="@+id/checkAnthem"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:checked="true"
+                android:text="@string/settings_anthem"
+                android:textColor="@color/text_primary" />
         </LinearLayout>
 
         <LinearLayout

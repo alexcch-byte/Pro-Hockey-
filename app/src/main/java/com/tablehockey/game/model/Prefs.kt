@@ -30,6 +30,14 @@ object Prefs {
     private const val KEY_TOURNAMENT = "tournament_state"
     private const val KEY_ARENA = "arena_type"
     private const val KEY_LEAGUE = "league"
+    private const val KEY_ANTHEM = "anthem"
+
+    /** Play the national anthem as a pre-game ceremony (default on). */
+    fun anthemEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_ANTHEM, true)
+
+    fun setAnthemEnabled(ctx: Context, on: Boolean) {
+        prefs(ctx).edit().putBoolean(KEY_ANTHEM, on).apply()
+    }
 
     /** Which club group the team pickers show: TeamInfo.LEAGUE_CALGARY (Timbits) or LEAGUE_NHL. */
     fun league(ctx: Context): String =

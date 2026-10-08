@@ -4,7 +4,7 @@ import com.tablehockey.game.model.AiDifficulty
 import com.tablehockey.game.model.ArenaType
 import com.tablehockey.game.model.TeamInfo
 
-enum class Phase { FACEOFF, PLAY, WHISTLE, GOAL, PERIOD_END, GAME_OVER }
+enum class Phase { FACEOFF, PLAY, WHISTLE, GOAL, PERIOD_END, GAME_OVER, ANTHEM }
 
 /** One-shot things that happened this tick; the view turns them into sounds / effects. */
 enum class GameEvent { SHOT, PASS, BOARDS, POST, GOAL, HIT, POKE, SAVE, WHISTLE, HORN, FACEOFF_DROP, PICKUP, PERIOD_END, GAME_OVER, FACEOFF_SET, ONE_TIMER, PENALTY, ON_FIRE, DEKE, GLASS_SHATTER, GOALIE_SAVE_MOVE, ICING, OFFSIDE }

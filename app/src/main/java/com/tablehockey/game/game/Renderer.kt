@@ -670,7 +670,7 @@ class Renderer(private val density: Float) {
         hud.drawScoreboard(canvas, world)
         drawShootoutControls(canvas, world, localTeam)
         hud.drawBanner(canvas, world)
-        if (controls != null) hud.drawControls(canvas, world, localTeam, controls)
+        if (controls != null && world.phase != Phase.ANTHEM) hud.drawControls(canvas, world, localTeam, controls)
         drawPauseButton(canvas)
         drawPullButton(canvas, world, localTeam)
         hud.drawOverlays(canvas, world)
@@ -1422,8 +1422,13 @@ class Renderer(private val density: Float) {
     /** Set by the view: false for network clients (no input path for it) so the pill is hidden. */
     @Volatile var pullPillEnabled = false
 
+    /** True on a WiFi/Bluetooth guest (changes the pre-game anthem caption). */
+    var guest: Boolean
+        get() = hud.guest
+        set(v) { hud.guest = v }
+
     private fun pullShown(w: World, localTeam: Int) =
-        pullPillEnabled && localTeam >= 0 && !w.isShootout && w.phase != Phase.GAME_OVER
+        pullPillEnabled && localTeam >= 0 && !w.isShootout && w.phase != Phase.GAME_OVER && w.phase != Phase.ANTHEM
 
     private fun pullRect(): RectF {
         val s = dp(40f)
