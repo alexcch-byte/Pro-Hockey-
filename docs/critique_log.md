@@ -420,3 +420,44 @@ Wiring (SoundManager): OFFSIDE and ICING play whistle_short; the WHISTLE event t
 - C5-4: caption "Clubs follow the league chosen in Match Setup" on the tournament and WiFi host pickers.
 - C5-5: the pull-goalie toggle sound plays only when the pulled state actually changed (pill and pause dialog share this path).
 - C5-6: `shortWhistleAt` starts at Long.MIN_VALUE / 2.
+
+## Kits (builder)
+
+- model/TeamInfo.kt: new `TeamKit(primary, secondary, text)` and `TeamInfo.awayKit` (NHL only; Timbits and fictional clubs stay single-kit). A NHL club's own primary/secondary/text fields are its HOME kit, so every non-match view (pickers, Customise Team, tournament bracket, menu hero) shows the home kit. `wearingAway()` returns the road version.
+- `TeamInfo.matchTeams(home, away)`: home club in its HOME kit, away club in its AWAY (white) kit; a customised club keeps its custom colours. Fallback only on a colour clash (redmean distance < 120): away club in its home kit; else home club in its road kit; else both swapped; else the generic `alternateKit`. Deterministic from the two indices, so host and guest agree. Indices and network format unchanged.
+- Sources: league rule (home = colour jersey, visitors wear white since 2003) from NHL-history coverage (thehockeynews.com Ask Adam, sportslogos.net boards); home-colour changes confirmed from: Wikipedia (Ducks orange home with white road; Hurricanes black home/white road), nhl.com (Kings black/silver/white, Ducks orange), sportslogos.net/news (Utah black home with blue and white; Sabres royal blue and gold since 2020-21; Penguins black and Pittsburgh gold; Panthers red home since 2016; Vegas gold promoted to primary home in 2022-23; Wild dark green home since 2017; Ottawa primary home black with red and white, red is a third), team-colour pages for Avalanche burgundy, Capitals red, Kraken navy with light-blue numbers, Blue Jackets navy with red. Nothing was found for a 2026-27 primary-uniform change (the league-wide "Hometown Remix" is a special-edition alternate). Trim and number colours for most clubs are from memory of their current sets, not individually verified (nhluniforms.com has only images): least sure about Boston trim/numbers (new 2025-26 set), Chicago (centennial set worn in 2025-26), Minnesota trim (cream vs wheat), Nashville, Dallas, Detroit, Philadelphia, St. Louis, Vancouver number colours.
+
+| Team | Home body / trim | Away body / trim |
+|---|---|---|
+| ANA | F47A38 / 111111 | FFFFFF / F47A38 |
+| BOS | 111111 / FFB81C | FFFFFF / 111111 |
+| BUF | 003087 / FFB81C | FFFFFF / 003087 |
+| CGY | C8102E / F1BE48 | FFFFFF / C8102E |
+| CAR | 111111 / CC0000 | FFFFFF / CC0000 |
+| CHI | CF0A2C / 111111 | FFFFFF / CF0A2C |
+| COL | 6F263D / 236192 | FFFFFF / 6F263D |
+| CBJ | 002654 / CE1126 | FFFFFF / 002654 |
+| DAL | 006847 / 8F8F8C | FFFFFF / 006847 |
+| DET | CE1126 / FFFFFF | FFFFFF / CE1126 |
+| EDM | 041E42 / FF4C00 | FFFFFF / 041E42 |
+| FLA | C8102E / 041E42 | FFFFFF / 041E42 |
+| LAK | 111111 / A2AAAD | FFFFFF / 111111 |
+| MIN | 154734 / DDCBA4 | FFFFFF / 154734 |
+| MTL | AF1E2D / 192168 | FFFFFF / AF1E2D |
+| NSH | FFB81C / 041E42 | FFFFFF / 041E42 |
+| NJD | CE1126 / 111111 | FFFFFF / CE1126 |
+| NYI | 00539B / F47D30 | FFFFFF / 00539B |
+| NYR | 0038A8 / CE1126 | FFFFFF / 0038A8 |
+| OTT | 111111 / C52032 | FFFFFF / C52032 |
+| PHI | F74902 / 111111 | FFFFFF / F74902 |
+| PIT | 111111 / FCB514 | FFFFFF / 111111 |
+| SJS | 006D75 / 111111 | FFFFFF / 006D75 |
+| SEA | 001628 / 99D9D9 | FFFFFF / 001628 |
+| STL | 002F87 / FCB514 | FFFFFF / 002F87 |
+| TBL | 002868 / FFFFFF | FFFFFF / 002868 |
+| TOR | 00205B / FFFFFF | FFFFFF / 00205B |
+| UTA | 111111 / 6CACE4 | FFFFFF / 6CACE4 |
+| VAN | 00205B / 00843D | FFFFFF / 00205B |
+| VGK | B4975A / 333F42 | FFFFFF / B4975A |
+| WSH | C8102E / 041E42 | FFFFFF / C8102E |
+| WPG | 041E42 / 004C97 | FFFFFF / 041E42 |

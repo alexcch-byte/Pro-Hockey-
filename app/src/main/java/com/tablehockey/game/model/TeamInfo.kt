@@ -3,6 +3,9 @@ package com.tablehockey.game.model
 import android.graphics.Color
 import java.io.Serializable
 
+/** Body colour, trim colour and number/lettering colour of one jersey. */
+data class TeamKit(val primary: Int, val secondary: Int, val text: Int) : Serializable
+
 /**
  * A selectable club. Timbits clubs and the fictional pro clubs are invented; the NHL group uses real
  * club names with approximate team colours, but never real logos (crests are drawn procedurally
@@ -17,8 +20,16 @@ data class TeamInfo(
     val text: Int,
     val league: String = LEAGUE_PRO,
     /** Extra cosmetics from the Customise Team screen; null for stock clubs. */
-    val style: TeamStyle? = null
+    val style: TeamStyle? = null,
+    /** Road (white) kit for NHL clubs; primary/secondary/text above are the HOME kit. Null = single-kit club. */
+    val awayKit: TeamKit? = null
 ) : Serializable {
+    /** This club in its road kit (stock colours only; a customised club keeps its own colours). */
+    fun wearingAway(): TeamInfo {
+        val k = awayKit ?: return this
+        return copy(primary = k.primary, secondary = k.secondary, text = k.text)
+    }
+
     val fullName: String get() = if (city.isEmpty()) name else "$city $name"
 
     // ---- Read-only kit API for renderers (never null; stock clubs fall back to their colours).
@@ -78,38 +89,70 @@ data class TeamInfo(
 
         /** The 32 NHL clubs (colours approximate; no logos). */
         private val NHL: List<TeamInfo> = listOf(
-            TeamInfo("Anaheim", "Ducks", "ANA", Color.parseColor("#F47A38"), Color.parseColor("#111111"), Color.parseColor("#111111"), LEAGUE_NHL),
-            TeamInfo("Boston", "Bruins", "BOS", Color.parseColor("#111111"), Color.parseColor("#FFB81C"), Color.parseColor("#FFB81C"), LEAGUE_NHL),
-            TeamInfo("Buffalo", "Sabres", "BUF", Color.parseColor("#003087"), Color.parseColor("#FFB81C"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Calgary", "Flames", "CGY", Color.parseColor("#C8102E"), Color.parseColor("#F1BE48"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Carolina", "Hurricanes", "CAR", Color.parseColor("#CC0000"), Color.parseColor("#111111"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Chicago", "Blackhawks", "CHI", Color.parseColor("#CF0A2C"), Color.parseColor("#111111"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Colorado", "Avalanche", "COL", Color.parseColor("#6F263D"), Color.parseColor("#236192"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Columbus", "Blue Jackets", "CBJ", Color.parseColor("#002654"), Color.parseColor("#CE1126"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Dallas", "Stars", "DAL", Color.parseColor("#006847"), Color.parseColor("#8F8F8C"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Detroit", "Red Wings", "DET", Color.parseColor("#CE1126"), Color.parseColor("#FFFFFF"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Edmonton", "Oilers", "EDM", Color.parseColor("#041E42"), Color.parseColor("#FF4C00"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Florida", "Panthers", "FLA", Color.parseColor("#041E42"), Color.parseColor("#C8102E"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Los Angeles", "Kings", "LAK", Color.parseColor("#111111"), Color.parseColor("#A2AAAD"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Minnesota", "Wild", "MIN", Color.parseColor("#154734"), Color.parseColor("#A6192E"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Montreal", "Canadiens", "MTL", Color.parseColor("#AF1E2D"), Color.parseColor("#192168"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Nashville", "Predators", "NSH", Color.parseColor("#FFB81C"), Color.parseColor("#041E42"), Color.parseColor("#041E42"), LEAGUE_NHL),
-            TeamInfo("New Jersey", "Devils", "NJD", Color.parseColor("#CE1126"), Color.parseColor("#111111"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("New York", "Islanders", "NYI", Color.parseColor("#00539B"), Color.parseColor("#F47D30"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("New York", "Rangers", "NYR", Color.parseColor("#0038A8"), Color.parseColor("#CE1126"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Ottawa", "Senators", "OTT", Color.parseColor("#C52032"), Color.parseColor("#111111"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Philadelphia", "Flyers", "PHI", Color.parseColor("#F74902"), Color.parseColor("#111111"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Pittsburgh", "Penguins", "PIT", Color.parseColor("#111111"), Color.parseColor("#FCB514"), Color.parseColor("#FCB514"), LEAGUE_NHL),
-            TeamInfo("San Jose", "Sharks", "SJS", Color.parseColor("#006D75"), Color.parseColor("#111111"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Seattle", "Kraken", "SEA", Color.parseColor("#001628"), Color.parseColor("#99D9D9"), Color.parseColor("#99D9D9"), LEAGUE_NHL),
-            TeamInfo("St. Louis", "Blues", "STL", Color.parseColor("#002F87"), Color.parseColor("#FCB514"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Tampa Bay", "Lightning", "TBL", Color.parseColor("#002868"), Color.parseColor("#FFFFFF"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Toronto", "Maple Leafs", "TOR", Color.parseColor("#00205B"), Color.parseColor("#FFFFFF"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Utah", "Mammoth", "UTA", Color.parseColor("#6CACE4"), Color.parseColor("#010101"), Color.parseColor("#010101"), LEAGUE_NHL),
-            TeamInfo("Vancouver", "Canucks", "VAN", Color.parseColor("#00205B"), Color.parseColor("#00843D"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Vegas", "Golden Knights", "VGK", Color.parseColor("#B4975A"), Color.parseColor("#333F42"), Color.parseColor("#111111"), LEAGUE_NHL),
-            TeamInfo("Washington", "Capitals", "WSH", Color.parseColor("#C8102E"), Color.parseColor("#041E42"), Color.parseColor("#FFFFFF"), LEAGUE_NHL),
-            TeamInfo("Winnipeg", "Jets", "WPG", Color.parseColor("#041E42"), Color.parseColor("#004C97"), Color.parseColor("#FFFFFF"), LEAGUE_NHL)
+            TeamInfo("Anaheim", "Ducks", "ANA", Color.parseColor("#F47A38"), Color.parseColor("#111111"), Color.parseColor("#111111"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#F47A38"), Color.parseColor("#111111"))),
+            TeamInfo("Boston", "Bruins", "BOS", Color.parseColor("#111111"), Color.parseColor("#FFB81C"), Color.parseColor("#FFB81C"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#111111"), Color.parseColor("#111111"))),
+            TeamInfo("Buffalo", "Sabres", "BUF", Color.parseColor("#003087"), Color.parseColor("#FFB81C"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#003087"), Color.parseColor("#003087"))),
+            TeamInfo("Calgary", "Flames", "CGY", Color.parseColor("#C8102E"), Color.parseColor("#F1BE48"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#C8102E"), Color.parseColor("#C8102E"))),
+            TeamInfo("Carolina", "Hurricanes", "CAR", Color.parseColor("#111111"), Color.parseColor("#CC0000"), Color.parseColor("#CC0000"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#CC0000"), Color.parseColor("#CC0000"))),
+            TeamInfo("Chicago", "Blackhawks", "CHI", Color.parseColor("#CF0A2C"), Color.parseColor("#111111"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#CF0A2C"), Color.parseColor("#CF0A2C"))),
+            TeamInfo("Colorado", "Avalanche", "COL", Color.parseColor("#6F263D"), Color.parseColor("#236192"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#6F263D"), Color.parseColor("#6F263D"))),
+            TeamInfo("Columbus", "Blue Jackets", "CBJ", Color.parseColor("#002654"), Color.parseColor("#CE1126"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#002654"), Color.parseColor("#002654"))),
+            TeamInfo("Dallas", "Stars", "DAL", Color.parseColor("#006847"), Color.parseColor("#8F8F8C"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#006847"), Color.parseColor("#006847"))),
+            TeamInfo("Detroit", "Red Wings", "DET", Color.parseColor("#CE1126"), Color.parseColor("#FFFFFF"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#CE1126"), Color.parseColor("#CE1126"))),
+            TeamInfo("Edmonton", "Oilers", "EDM", Color.parseColor("#041E42"), Color.parseColor("#FF4C00"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#041E42"), Color.parseColor("#041E42"))),
+            TeamInfo("Florida", "Panthers", "FLA", Color.parseColor("#C8102E"), Color.parseColor("#041E42"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#041E42"), Color.parseColor("#041E42"))),
+            TeamInfo("Los Angeles", "Kings", "LAK", Color.parseColor("#111111"), Color.parseColor("#A2AAAD"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#111111"), Color.parseColor("#111111"))),
+            TeamInfo("Minnesota", "Wild", "MIN", Color.parseColor("#154734"), Color.parseColor("#DDCBA4"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#154734"), Color.parseColor("#154734"))),
+            TeamInfo("Montreal", "Canadiens", "MTL", Color.parseColor("#AF1E2D"), Color.parseColor("#192168"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#AF1E2D"), Color.parseColor("#AF1E2D"))),
+            TeamInfo("Nashville", "Predators", "NSH", Color.parseColor("#FFB81C"), Color.parseColor("#041E42"), Color.parseColor("#041E42"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#041E42"), Color.parseColor("#041E42"))),
+            TeamInfo("New Jersey", "Devils", "NJD", Color.parseColor("#CE1126"), Color.parseColor("#111111"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#CE1126"), Color.parseColor("#CE1126"))),
+            TeamInfo("New York", "Islanders", "NYI", Color.parseColor("#00539B"), Color.parseColor("#F47D30"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#00539B"), Color.parseColor("#00539B"))),
+            TeamInfo("New York", "Rangers", "NYR", Color.parseColor("#0038A8"), Color.parseColor("#CE1126"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#0038A8"), Color.parseColor("#0038A8"))),
+            TeamInfo("Ottawa", "Senators", "OTT", Color.parseColor("#111111"), Color.parseColor("#C52032"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#C52032"), Color.parseColor("#111111"))),
+            TeamInfo("Philadelphia", "Flyers", "PHI", Color.parseColor("#F74902"), Color.parseColor("#111111"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#F74902"), Color.parseColor("#111111"))),
+            TeamInfo("Pittsburgh", "Penguins", "PIT", Color.parseColor("#111111"), Color.parseColor("#FCB514"), Color.parseColor("#FCB514"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#111111"), Color.parseColor("#111111"))),
+            TeamInfo("San Jose", "Sharks", "SJS", Color.parseColor("#006D75"), Color.parseColor("#111111"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#006D75"), Color.parseColor("#006D75"))),
+            TeamInfo("Seattle", "Kraken", "SEA", Color.parseColor("#001628"), Color.parseColor("#99D9D9"), Color.parseColor("#99D9D9"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#001628"), Color.parseColor("#001628"))),
+            TeamInfo("St. Louis", "Blues", "STL", Color.parseColor("#002F87"), Color.parseColor("#FCB514"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#002F87"), Color.parseColor("#002F87"))),
+            TeamInfo("Tampa Bay", "Lightning", "TBL", Color.parseColor("#002868"), Color.parseColor("#FFFFFF"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#002868"), Color.parseColor("#002868"))),
+            TeamInfo("Toronto", "Maple Leafs", "TOR", Color.parseColor("#00205B"), Color.parseColor("#FFFFFF"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#00205B"), Color.parseColor("#00205B"))),
+            TeamInfo("Utah", "Mammoth", "UTA", Color.parseColor("#111111"), Color.parseColor("#6CACE4"), Color.parseColor("#6CACE4"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#6CACE4"), Color.parseColor("#111111"))),
+            TeamInfo("Vancouver", "Canucks", "VAN", Color.parseColor("#00205B"), Color.parseColor("#00843D"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#00205B"), Color.parseColor("#00205B"))),
+            TeamInfo("Vegas", "Golden Knights", "VGK", Color.parseColor("#B4975A"), Color.parseColor("#333F42"), Color.parseColor("#111111"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#B4975A"), Color.parseColor("#111111"))),
+            TeamInfo("Washington", "Capitals", "WSH", Color.parseColor("#C8102E"), Color.parseColor("#041E42"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#C8102E"), Color.parseColor("#C8102E"))),
+            TeamInfo("Winnipeg", "Jets", "WPG", Color.parseColor("#041E42"), Color.parseColor("#004C97"), Color.parseColor("#FFFFFF"), LEAGUE_NHL,
+                awayKit = TeamKit(Color.parseColor("#FFFFFF"), Color.parseColor("#041E42"), Color.parseColor("#041E42")))
         )
 
         /**
@@ -154,17 +197,30 @@ data class TeamInfo(
             return t.copy(primary = np, secondary = ns, text = text)
         }
 
+        private fun clash(x: TeamInfo, y: TeamInfo) = colourDistance(x.primary, y.primary) < CLASH_DISTANCE
+
         /**
-         * Builds the two clubs of a match with any customisations applied, and resolves a jersey clash:
-         * if the primaries are too close, the away club (or the home club when only the away club has a
-         * custom kit) wears an alternate kit. If both have custom kits nothing is changed.
+         * Builds the two clubs of a match. NHL clubs wear their real kits: the home club its HOME kit (the
+         * colour jersey) and the away club its AWAY kit (white). A club customised on the Customise Team
+         * screen keeps its own colours. If the two jerseys still clash, fall back in order to: the away club
+         * in its home kit, the home club in its road kit against that, and finally a generic alternate kit
+         * for the away (or, if that is custom, the home) club. Pure function of the two indices and saved
+         * customisations, so host and guest agree.
          */
         fun matchTeams(homeIdx: Int, awayIdx: Int): Array<TeamInfo> {
-            var home = byIndex(homeIdx)
-            var away = byIndex(awayIdx)
-            if (colourDistance(home.primary, away.primary) < CLASH_DISTANCE) {
-                if (!away.hasCustomKit) away = alternateKit(away, home.primary)
-                else if (!home.hasCustomKit) home = alternateKit(home, away.primary)
+            val homeStock = byIndex(homeIdx)
+            val awayStock = byIndex(awayIdx)
+            var home = homeStock
+            var away = if (awayStock.hasCustomKit) awayStock else awayStock.wearingAway()
+            if (clash(home, away)) {
+                val homeAlt = if (homeStock.hasCustomKit) homeStock else homeStock.wearingAway()
+                when {
+                    !clash(home, awayStock) -> away = awayStock
+                    !clash(homeAlt, away) -> home = homeAlt
+                    !clash(homeAlt, awayStock) -> { home = homeAlt; away = awayStock }
+                    !away.hasCustomKit -> away = alternateKit(away, home.primary)
+                    !home.hasCustomKit -> home = alternateKit(home, away.primary)
+                }
             }
             return arrayOf(home, away)
         }
