@@ -36,6 +36,7 @@ class TeamPreviewView @JvmOverloads constructor(ctx: Context, attrs: AttributeSe
     private val d = ctx.resources.displayMetrics.density
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
     private val bmpPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val decalPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply { alpha = 120 }
     private val name = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         textAlign = Paint.Align.CENTER
@@ -95,19 +96,20 @@ class TeamPreviewView @JvmOverloads constructor(ctx: Context, attrs: AttributeSe
         if (w <= 0 || h <= 0 || st == null || t == null) return
 
         // Figures deliberately overlap a little (skater in front, goalie behind and smaller).
-        // Art extents in units: skater x -29..31, goalie x -39..40. Keep both inside the view:
-        //   skater left edge: cx - 29u >= 0.03w  with cx = 0.35w
-        //   goalie right edge: cx + 40*gs*u <= 0.97w  with cx = 0.67w
+        // Art extents in units: skater x -29..31 (head reaches y = -8), goalie x -41..42.
+        //   skater left edge: cx - 29u >= 0.03w  with cx = 0.36w
+        //   goalie right edge: cx + 42*gs*u <= 0.97w  with cx = 0.68w
+        //   skater head top: feet - 108u >= 0.03h
         val goalieScale = 0.84f
-        val uByWidth = min((0.35f - 0.03f) * w / 29f, (0.97f - 0.67f) * w / (40f * goalieScale))
-        val uByHeight = h * 0.60f / 100f
+        val uByWidth = min((0.36f - 0.03f) * w / 29f, (0.97f - 0.68f) * w / (42f * goalieScale))
+        val uByHeight = h * (0.88f - 0.03f) / 108f
         val u = min(uByWidth, uByHeight)
         skaterUnit = u
         goalieUnit = u * goalieScale
-        skaterCx = 0.35f * w
-        goalieCx = 0.67f * w
-        skaterFeet = h * 0.90f
-        goalieFeet = h * 0.82f
+        skaterCx = 0.36f * w
+        goalieCx = 0.68f * w
+        skaterFeet = h * 0.88f
+        goalieFeet = h * 0.80f
 
         // bitmaps use whole-pixel heights; take the real unit size from them so feet land exactly
         val sPx = (u * 100f).toInt().coerceAtLeast(8)
@@ -117,8 +119,8 @@ class TeamPreviewView @JvmOverloads constructor(ctx: Context, attrs: AttributeSe
         skaterBmp = TeamArt.skaterBitmap(st, t.abbr, sPx)
         goalieBmp = TeamArt.goalieBitmap(st, t.abbr, gPx)
 
-        // crest header: small bitmap so its gradients are not rebuilt every frame
-        val r = h * 0.06f
+        // Club crest painted on the ice (centre-ice logo), seen at a shallow angle behind the figures.
+        val r = w * 0.2f
         val side = (r * 2.6f).toInt().coerceAtLeast(8)
         val cb = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
         TeamArt.drawCrest(Canvas(cb), side / 2f, side / 2f - r * 0.05f, r, st, t.abbr)
@@ -153,10 +155,17 @@ class TeamPreviewView @JvmOverloads constructor(ctx: Context, attrs: AttributeSe
         oval.set(skaterCx - skaterUnit * 22f, skaterFeet - h * 0.014f, skaterCx + skaterUnit * 26f, skaterFeet + h * 0.022f)
         c.drawOval(oval, p)
 
-        goalieBmp?.let { c.drawBitmap(it, goalieCx - it.width / 2f, goalieFeet - 102f * goalieUnit, bmpPaint) }
-        skaterBmp?.let { c.drawBitmap(it, skaterCx - it.width / 2f, skaterFeet - 102f * skaterUnit, bmpPaint) }
+        // centre-ice crest decal, squashed to lie on the ice (under the figures)
+        crestBmp?.let {
+            c.save()
+            c.translate(w * 0.5f, h * 0.86f)
+            c.scale(1f, 0.26f)
+            c.drawBitmap(it, -it.width / 2f, -it.height / 2f, decalPaint)
+            c.restore()
+        }
+        goalieBmp?.let { c.drawBitmap(it, goalieCx - it.width / 2f, goalieFeet - TeamArt.FEET_UNITS * goalieUnit, bmpPaint) }
+        skaterBmp?.let { c.drawBitmap(it, skaterCx - it.width / 2f, skaterFeet - TeamArt.FEET_UNITS * skaterUnit, bmpPaint) }
 
-        crestBmp?.let { c.drawBitmap(it, w * 0.5f - it.width / 2f, h * 0.025f, bmpPaint) }
         name.textSize = h * 0.06f
         c.drawText(title, w * 0.5f, h * 0.955f, name)
         sub.textSize = h * 0.026f

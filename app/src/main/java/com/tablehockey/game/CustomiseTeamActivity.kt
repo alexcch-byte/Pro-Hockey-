@@ -182,11 +182,26 @@ class CustomiseTeamActivity : AppCompatActivity() {
         val flow = newFlow()
         val patterns = JerseyPattern.values()
         for (p in patterns) {
-            val chip = ChipView(this, 56) { c, cx, cy, r -> TeamArt.drawPatternTile(c, cx, cy, r * 1.05f, style, p) }
+            val chip = ChipView(this, 62) { c, cx, cy, r -> TeamArt.drawPatternTile(c, cx, cy, r * 1.1f, style, p) }
             chip.chosen = style.pattern == p
             chip.contentDescription = p.label
             chip.setOnClickListener { edit(style.copy(pattern = p)) }
             flow.addView(chip, chipParams())
+        }
+        // Live kit preview: jersey, helmet and socks as they will look, filling the rest of the tab.
+        addLabel("Your kit")
+        val kit = newFlow()
+        val painters = arrayOf<(Canvas, Float, Float, Float) -> Unit>(
+            { c, cx, cy, r -> TeamArt.drawJerseyIcon(c, cx, cy, r * 1.4f, style, base.abbr) },
+            { c, cx, cy, r -> TeamArt.drawHelmetIcon(c, cx, cy, r * 1.4f, style) },
+            { c, cx, cy, r -> TeamArt.drawSockIcon(c, cx, cy, r * 1.4f, style) }
+        )
+        val labels = arrayOf("Jersey", "Helmet", "Socks")
+        for (k in painters.indices) {
+            val chip = ChipView(this, 96, labels[k], painters[k])
+            chip.isClickable = false
+            chip.contentDescription = labels[k]
+            kit.addView(chip, chipParams())
         }
     }
 
@@ -196,7 +211,7 @@ class CustomiseTeamActivity : AppCompatActivity() {
         val emblemStyles = CrestType.values().map { style.copy(crest = it) }
         for ((k, t) in CrestType.values().withIndex()) {
             val s = emblemStyles[k]
-            val chip = ChipView(this, 46) { c, cx, cy, r -> TeamArt.drawCrest(c, cx, cy, r * 1.25f, s, base.abbr) }
+            val chip = ChipView(this, 54) { c, cx, cy, r -> TeamArt.drawCrest(c, cx, cy, r * 1.4f, s, base.abbr) }
             chip.chosen = style.crest == t
             chip.contentDescription = t.label
             chip.setOnClickListener { edit(style.copy(crest = t)) }
@@ -207,7 +222,7 @@ class CustomiseTeamActivity : AppCompatActivity() {
         val frameStyles = CrestFrame.values().map { style.copy(frame = it) }
         for ((k, f) in CrestFrame.values().withIndex()) {
             val s = frameStyles[k]
-            val chip = ChipView(this, 46) { c, cx, cy, r -> TeamArt.drawCrest(c, cx, cy, r * 1.25f, s, base.abbr) }
+            val chip = ChipView(this, 54) { c, cx, cy, r -> TeamArt.drawCrest(c, cx, cy, r * 1.4f, s, base.abbr) }
             chip.chosen = style.frame == f
             chip.contentDescription = f.label
             chip.setOnClickListener { edit(style.copy(frame = f)) }
@@ -215,6 +230,8 @@ class CustomiseTeamActivity : AppCompatActivity() {
         }
         // Foreground / Background / Outline colour targets, as in the reference.
         val colors = intArrayOf(style.crestFg, style.crestBg, style.crestOutline)
+        // breathing room between the shape pickers and the colour targets
+        panel.addView(View(this), LinearLayout.LayoutParams(1, (12 * dp).toInt()))
         addTargetRow(arrayOf("Foreground", "Background", "Outline"), colors, logoColorTarget) { logoColorTarget = it; refresh() }
         addSwatches(colors[logoColorTarget]) {
             edit(when (logoColorTarget) {

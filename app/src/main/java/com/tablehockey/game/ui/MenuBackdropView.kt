@@ -35,8 +35,11 @@ class MenuBackdropView @JvmOverloads constructor(ctx: Context, attrs: AttributeS
     private var bandShader: Shader? = null
     private var coneShader: Shader? = null
     private var vignetteShader: Shader? = null
+    private var scrimShader: Shader? = null
     private var heroBmp: Bitmap? = null
     private var heroUnit = 0f
+    private var goalieBmp: Bitmap? = null
+    private var goalieUnit = 0f
     private val bmpPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private var crowd: FloatArray = FloatArray(0)
     private var crowdColors: IntArray = IntArray(0)
@@ -59,6 +62,7 @@ class MenuBackdropView @JvmOverloads constructor(ctx: Context, attrs: AttributeS
         bandShader = LinearGradient(0f, h * 0.30f, 0f, horizon, 0x00000000, 0xCC03060B.toInt(), Shader.TileMode.CLAMP)
         coneShader = LinearGradient(0f, 0f, 0f, horizon + h * 0.12f, 0x30FFFFFF, 0x00FFFFFF, Shader.TileMode.CLAMP)
         vignetteShader = LinearGradient(0f, 0f, 0f, h * 0.2f, 0xAA000000.toInt(), 0x00000000, Shader.TileMode.CLAMP)
+        scrimShader = LinearGradient(0f, 0f, w * 0.62f, 0f, 0xC003060B.toInt(), 0x0003060B, Shader.TileMode.CLAMP)
         buildHero()
         // crowd: seeded specks in the upper wall
         val rnd = Random(7)
@@ -78,9 +82,13 @@ class MenuBackdropView @JvmOverloads constructor(ctx: Context, attrs: AttributeS
     private fun buildHero() {
         if (height <= 0) return
         heroBmp?.recycle()
-        val px = (height * 0.50f).toInt().coerceAtLeast(16)
+        goalieBmp?.recycle()
+        val px = (height * 0.68f).toInt().coerceAtLeast(16)
         heroUnit = px / 100f
         heroBmp = TeamArt.skaterBitmap(style, team.abbr, px)
+        val gpx = (px * 0.62f).toInt().coerceAtLeast(16)
+        goalieUnit = gpx / 100f
+        goalieBmp = TeamArt.goalieBitmap(style, team.abbr, gpx)
     }
 
     override fun onDraw(c: Canvas) {
@@ -155,19 +163,26 @@ class MenuBackdropView @JvmOverloads constructor(ctx: Context, attrs: AttributeS
         }
         p.style = Paint.Style.FILL
 
-        // hero skater (cached bitmap) with contact shadow
-        val cx = w * 0.3f
-        val feet = h * 0.93f
-        val hu = heroUnit
+        // hero pair (cached bitmaps): goalie behind and smaller, skater in front, floor shadows
+        val gcx = w * 0.20f
+        val gfeet = h * 0.88f
+        val gu = goalieUnit
         p.color = 0x55102A44
-        oval.set(cx - hu * 34f, feet - hu * 3f, cx + hu * 38f, feet + hu * 4f)
+        oval.set(gcx - gu * 36f, gfeet - gu * 3f, gcx + gu * 38f, gfeet + gu * 4f)
         c.drawOval(oval, p)
-        heroBmp?.let {
-            c.save()
-            c.rotate(-4f, cx, feet)
-            c.drawBitmap(it, cx - it.width / 2f, feet - 102f * hu, bmpPaint)
-            c.restore()
-        }
+        goalieBmp?.let { c.drawBitmap(it, gcx - it.width / 2f, gfeet - TeamArt.FEET_UNITS * gu, bmpPaint) }
+        val cx = w * 0.40f
+        val feet = h * 0.95f
+        val hu = heroUnit
+        p.color = 0x66102A44
+        oval.set(cx - hu * 30f, feet - hu * 3f, cx + hu * 36f, feet + hu * 4f)
+        c.drawOval(oval, p)
+        heroBmp?.let { c.drawBitmap(it, cx - it.width / 2f, feet - TeamArt.FEET_UNITS * hu, bmpPaint) }
+
+        // left scrim keeps the title block readable over the crowd
+        p.shader = scrimShader
+        c.drawRect(0f, 0f, w * 0.62f, h * 0.6f, p)
+        p.shader = null
 
         // top vignette
         p.shader = vignetteShader
