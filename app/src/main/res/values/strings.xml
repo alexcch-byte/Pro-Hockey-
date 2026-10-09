@@ -28,6 +28,7 @@
     <string name="league_timbits">TIMBITS</string>
     <string name="league_nhl">NHL</string>
     <string name="settings_anthem">Play national anthem before the game</string>
+    <string name="settings_offsides">Offsides (stop play when attackers enter early)</string>
     <string name="clubs_follow_league">Clubs follow the league chosen in Match Setup</string>
     <string name="settings_opponent">Opponent</string>
     <string name="settings_period_length">Period Length</string>

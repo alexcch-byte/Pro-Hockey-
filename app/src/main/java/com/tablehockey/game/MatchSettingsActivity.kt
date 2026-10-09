@@ -64,6 +64,10 @@ class MatchSettingsActivity : AppCompatActivity() {
         checkAnthem.isChecked = Prefs.anthemEnabled(this)
         checkAnthem.setOnCheckedChangeListener { _, on -> Prefs.setAnthemEnabled(this, on) }
 
+        val checkOffsides = findViewById<android.widget.CheckBox>(R.id.checkOffsides)
+        checkOffsides.isChecked = Prefs.offsideEnabled(this)
+        checkOffsides.setOnCheckedChangeListener { _, on -> Prefs.setOffsideEnabled(this, on) }
+
         findViewById<Button>(R.id.btnStart).setOnClickListener {
             MusicManager.click(this)
             val homePos = spinnerHome.selectedItemPosition.coerceIn(0, teamIdx.size - 1)

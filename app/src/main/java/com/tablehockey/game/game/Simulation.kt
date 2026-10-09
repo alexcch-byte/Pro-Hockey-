@@ -165,7 +165,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
             }
             Phase.PLAY -> {
                 playStep(dt, inputs)
-                if (w.phase == Phase.PLAY && !w.isShootout) checkOffside()
+                if (w.offsidesEnabled && w.phase == Phase.PLAY && !w.isShootout) checkOffside()
             }
         }
         for (t in 0..1) inputs[t]?.clearPulses()
@@ -1017,7 +1017,7 @@ class Simulation(val world: World, private val ai: AiSettings, seed: Long = Syst
         }
         w.events.add(GameEvent.PICKUP)
         // An offside attacker touching the puck stops play.
-        if (!w.isShootout && w.phase == Phase.PLAY && offsideMark[s.team * 6 + s.index]) callOffside(w.team(s.team), s)
+        if (w.offsidesEnabled && !w.isShootout && w.phase == Phase.PLAY && offsideMark[s.team * 6 + s.index]) callOffside(w.team(s.team), s)
     }
 
     /** Opponents try to strip the puck from [carrier] with pokes, stick contact or body contact. */

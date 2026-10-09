@@ -159,6 +159,7 @@ class GameView @JvmOverloads constructor(
             w.controlled[1] = if (config.mode == GameMode.WIFI_HOST) 0 else -1
             val sim = Simulation(w, AiSettings.forDifficulty(config.aiDifficulty))
             sim.uncappedOvertime = tournament
+            w.offsidesEnabled = config.mode != GameMode.SHOOTOUT && com.tablehockey.game.model.Prefs.offsideEnabled(context)
             sim.start(anthem && config.mode != GameMode.SHOOTOUT)
             simulation = sim
         }

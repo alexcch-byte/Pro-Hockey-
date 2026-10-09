@@ -92,6 +92,9 @@ class World(homeInfo: TeamInfo, awayInfo: TeamInfo, val periodLength: Int) {
     val teams = arrayOf(Team(0, homeInfo, 1f), Team(1, awayInfo, -1f))
     val puck = Puck()
 
+    /** Offside rule on/off (host side only; a match option, off by default). */
+    @JvmField var offsidesEnabled = false
+
     var period = 1
     var clock = periodLength.toFloat()
     var overtime = false

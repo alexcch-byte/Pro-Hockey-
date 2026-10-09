@@ -123,7 +123,7 @@ class AIController(private val ai: AiSettings, private val rng: Random) {
             s.aiTargetY = if (s.aiTargetY < 0f) -6f else 6f
         }
         // Offside: without the puck, stay on the neutral side of the attacking blue line until the puck is in the zone.
-        if (carrier !== s && team.toAttackX(puck.x) <= Rink.BLUE_LINE_X) {
+        if (world.offsidesEnabled && carrier !== s && team.toAttackX(puck.x) <= Rink.BLUE_LINE_X) {
             val lim = Rink.BLUE_LINE_X - 2.5f
             if (team.toAttackX(s.aiTargetX) > lim) s.aiTargetX = team.toWorldX(lim)
         }

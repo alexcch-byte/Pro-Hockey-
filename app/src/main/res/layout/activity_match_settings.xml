@@ -163,6 +163,15 @@
                 android:checked="true"
                 android:text="@string/settings_anthem"
                 android:textColor="@color/text_primary" />
+
+            <CheckBox
+                android:id="@+id/checkOffsides"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:checked="false"
+                android:text="@string/settings_offsides"
+                android:textColor="@color/text_primary" />
         </LinearLayout>
 
         <LinearLayout

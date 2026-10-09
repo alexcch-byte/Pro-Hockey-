@@ -32,6 +32,15 @@ object Prefs {
     private const val KEY_LEAGUE = "league"
     private const val KEY_ANTHEM = "anthem"
 
+    private const val KEY_OFFSIDES = "offsides"
+
+    /** Offside rule (default off, arcade-style). Read by the host when a match starts. */
+    fun offsideEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_OFFSIDES, false)
+
+    fun setOffsideEnabled(ctx: Context, on: Boolean) {
+        prefs(ctx).edit().putBoolean(KEY_OFFSIDES, on).apply()
+    }
+
     /** Play the national anthem as a pre-game ceremony (default on). */
     fun anthemEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_ANTHEM, true)
 
