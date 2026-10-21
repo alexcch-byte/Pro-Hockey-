@@ -58,9 +58,9 @@ object Prefs {
         prefs(ctx).edit().putBoolean(KEY_ANTHEM, on).apply()
     }
 
-    /** Which club group the team pickers show: TeamInfo.LEAGUE_CALGARY (Timbits) or LEAGUE_NHL. */
+    /** Which club group the team pickers show: TeamInfo.LEAGUE_CALGARY (Timbits), LEAGUE_NHL or LEAGUE_GTHL. */
     fun league(ctx: Context): String =
-        if (prefs(ctx).getString(KEY_LEAGUE, null) == TeamInfo.LEAGUE_NHL) TeamInfo.LEAGUE_NHL else TeamInfo.LEAGUE_CALGARY
+        TeamInfo.normalizeLeague(prefs(ctx).getString(KEY_LEAGUE, null) ?: TeamInfo.LEAGUE_CALGARY)
 
     fun setLeague(ctx: Context, league: String) {
         prefs(ctx).edit().putString(KEY_LEAGUE, league).apply()

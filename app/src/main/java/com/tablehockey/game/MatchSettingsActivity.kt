@@ -43,10 +43,18 @@ class MatchSettingsActivity : AppCompatActivity() {
             spinnerAway.setSelection(if (homePos == 1) 0 else 1)
         }
         val league0 = Prefs.league(this)
-        radioLeague.check(if (league0 == TeamInfo.LEAGUE_NHL) R.id.leagueNhl else R.id.leagueTimbits)
+        radioLeague.check(when (league0) {
+            TeamInfo.LEAGUE_NHL -> R.id.leagueNhl
+            TeamInfo.LEAGUE_GTHL -> R.id.leagueGthl
+            else -> R.id.leagueTimbits
+        })
         populate(league0)
         radioLeague.setOnCheckedChangeListener { _, id ->
-            val l = if (id == R.id.leagueNhl) TeamInfo.LEAGUE_NHL else TeamInfo.LEAGUE_CALGARY
+            val l = when (id) {
+                R.id.leagueNhl -> TeamInfo.LEAGUE_NHL
+                R.id.leagueGthl -> TeamInfo.LEAGUE_GTHL
+                else -> TeamInfo.LEAGUE_CALGARY
+            }
             Prefs.setLeague(this, l)
             populate(l)
         }

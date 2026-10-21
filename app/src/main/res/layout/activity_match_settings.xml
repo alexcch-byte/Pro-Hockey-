@@ -38,6 +38,7 @@
                 android:orientation="horizontal">
                 <RadioButton android:id="@+id/leagueTimbits" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/league_timbits" android:textColor="@color/text_primary" android:checked="true" />
                 <RadioButton android:id="@+id/leagueNhl" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/league_nhl" android:textColor="@color/text_primary" />
+                <RadioButton android:id="@+id/leagueGthl" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/league_gthl" android:textColor="@color/text_primary" />
             </RadioGroup>
         </LinearLayout>
 

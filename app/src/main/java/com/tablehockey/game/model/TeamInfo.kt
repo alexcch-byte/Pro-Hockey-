@@ -7,8 +7,8 @@ import java.io.Serializable
 data class TeamKit(val primary: Int, val secondary: Int, val text: Int) : Serializable
 
 /**
- * A selectable club. Timbits clubs and the fictional pro clubs are invented; the NHL group uses real
- * club names with approximate team colours, but never real logos (crests are drawn procedurally
+ * A selectable club. Timbits clubs and the fictional pro clubs are invented; the NHL and GTHL (Toronto
+ * minor hockey) groups use real club names with approximate team colours, but never real logos (crests are drawn procedurally
  * from the colours and the abbreviation).
  */
 data class TeamInfo(
@@ -48,6 +48,7 @@ data class TeamInfo(
         const val LEAGUE_PRO = "Pro League"
         const val LEAGUE_CALGARY = "Timbits U7"
         const val LEAGUE_NHL = "NHL"
+        const val LEAGUE_GTHL = "GTHL"
 
         /**
          * Calgary-area Timbits (U7) clubs, one per minor hockey association.
@@ -156,10 +157,53 @@ data class TeamInfo(
         )
 
         /**
-         * Combined list. Indices are stable (Timbits 0-19, fictional pro 20-27, NHL 28-59) and are what
+         * The GTHL (Greater Toronto Hockey League) competitive clubs: real club names, approximate jersey
+         * colours (sources and confidence in docs/gthl_teams.md), never real logos. Every club also gets a white road kit.
+         */
+        private fun gthl(city: String, name: String, abbr: String, primary: String, secondary: String, text: String) =
+            TeamInfo(city, name, abbr, Color.parseColor(primary), Color.parseColor(secondary), Color.parseColor(text), LEAGUE_GTHL,
+                awayKit = TeamKit(Color.WHITE, Color.parseColor(primary), Color.parseColor(primary)))
+
+        private val GTHL: List<TeamInfo> = listOf(
+            gthl("Greater Toronto", "Capitals", "GTC", "#1B2A5C", "#C8102E", "#FFFFFF"), // approx
+            gthl("Toronto", "Marlboros", "TMB", "#1F4E9E", "#FFFFFF", "#FFFFFF"),
+            gthl("Toronto", "Jr. Canadiens", "TJC", "#ED1C22", "#023273", "#FFFFFF"),
+            gthl("Toronto", "Young Nationals", "TYN", "#C8102E", "#14213D", "#FFFFFF"), // approx
+            gthl("Don Mills", "Flyers", "DMF", "#F26522", "#111111", "#FFFFFF"), // approx
+            gthl("Vaughan", "Kings", "VKG", "#111111", "#B0B7BD", "#FFFFFF"), // approx
+            gthl("Reps", "Hockey Club", "REP", "#1E3A8A", "#FFC72C", "#FFFFFF"), // approx
+            gthl("Markham", "Islanders", "MKI", "#00539B", "#F47D30", "#FFFFFF"), // approx
+            gthl("Markham", "Majors", "MKM", "#019034", "#000000", "#FFFFFF"),
+            gthl("Mississauga", "Senators", "MSN", "#111111", "#C52032", "#FFFFFF"), // approx
+            gthl("Mississauga", "Rebels", "MRB", "#B91C1C", "#111111", "#FFFFFF"), // approx
+            gthl("Mississauga", "Jets", "MJT", "#0A2A66", "#5BA9E0", "#FFFFFF"), // approx
+            gthl("Mississauga", "North Stars", "MNS", "#006847", "#111111", "#FFFFFF"), // approx
+            gthl("Mississauga", "Beast", "MBE", "#111111", "#F59E0B", "#FFFFFF"), // approx
+            gthl("Mississauga", "Rattlers", "MRT", "#1A1A1A", "#7CB342", "#FFFFFF"), // approx
+            gthl("Mississauga", "Terriers", "MTT", "#7A1F1F", "#E5E7EB", "#FFFFFF"), // approx
+            gthl("Leaside", "Flames", "LSF", "#D32F2F", "#111111", "#FFFFFF"), // approx
+            gthl("Avenue Road", "Ducks", "ARD", "#0F5C3A", "#F5C518", "#FFFFFF"), // approx
+            gthl("Duffield", "Devils", "DUF", "#CE1126", "#111111", "#FFFFFF"), // approx
+            gthl("Faustina", "Toros", "FTT", "#7B1E3A", "#F2C94C", "#FFFFFF"), // approx
+            gthl("Hillcrest", "Canadiens", "HCC", "#1E2F6B", "#C8102E", "#FFFFFF"), // approx
+            gthl("Humber Valley", "Sharks", "HVS", "#00858A", "#111111", "#FFFFFF"), // approx
+            gthl("Goulding Park", "Rangers", "GPR", "#1D4ED8", "#DC2626", "#FFFFFF"), // approx
+            gthl("North York", "Knights", "NYK", "#1F2A44", "#A8B2BD", "#FFFFFF"), // approx
+            gthl("North York", "Rangers", "NYX", "#0038A8", "#CE1126", "#FFFFFF"),
+            gthl("Scarborough", "Young Bruins", "SYB", "#111111", "#FFB81C", "#FFFFFF"), // approx
+            gthl("Scarborough", "Ice Raiders", "SIR", "#0A3D62", "#7DD3FC", "#FFFFFF"), // approx
+            gthl("Toronto", "Red Wings", "TRW", "#CE1126", "#FFFFFF", "#FFFFFF"), // approx
+            gthl("Toronto", "Titans", "TTT", "#23395B", "#C0C0C0", "#FFFFFF"), // approx
+            gthl("Toronto", "Aeros", "TAE", "#111111", "#C8102E", "#FFFFFF"),
+            gthl("Toronto", "Eagles", "TEG", "#00693E", "#F2C94C", "#FFFFFF"), // approx
+            gthl("Toronto", "Royals", "TRY", "#5B2C83", "#D4AF37", "#FFFFFF") // approx
+        )
+
+        /**
+         * Combined list. Indices are stable (Timbits 0-19, fictional pro 20-27, NHL 28-59, GTHL 60-91; new groups are only ever appended) and are what
          * MatchConfig, the network config and the tournament store, so host and guest always agree.
          */
-        val ALL: List<TeamInfo> = CALGARY + FICTIONAL + NHL
+        val ALL: List<TeamInfo> = CALGARY + FICTIONAL + NHL + GTHL
 
         /** Weighted RGB distance ("redmean"), 0 = identical, about 765 = black vs white. */
         fun colourDistance(a: Int, b: Int): Float {
@@ -226,11 +270,13 @@ data class TeamInfo(
         }
 
         /** The leagues offered in the pickers, in toggle order. */
-        val LEAGUES: List<String> = listOf(LEAGUE_CALGARY, LEAGUE_NHL)
+        val LEAGUES: List<String> = listOf(LEAGUE_CALGARY, LEAGUE_NHL, LEAGUE_GTHL)
 
-        /** Indices into [ALL] of the clubs in [league] (anything but NHL means Timbits). */
+        /** Indices into [ALL] of the clubs in [league] (unknown values mean Timbits). */
+        fun normalizeLeague(league: String): String = if (league == LEAGUE_NHL || league == LEAGUE_GTHL) league else LEAGUE_CALGARY
+
         fun indicesFor(league: String): IntArray {
-            val l = if (league == LEAGUE_NHL) LEAGUE_NHL else LEAGUE_CALGARY
+            val l = normalizeLeague(league)
             return ALL.indices.filter { ALL[it].league == l }.toIntArray()
         }
 
