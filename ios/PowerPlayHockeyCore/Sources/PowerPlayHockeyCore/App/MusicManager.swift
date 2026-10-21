@@ -15,6 +15,7 @@ public final class MusicManager {
         set {
             Prefs.setMusicVolume(Int((newValue * 100).rounded()))
             if newValue <= 0 {
+                releaseAnthem()
                 stop()
             } else {
                 applyVolume(trackVolume)
@@ -27,7 +28,12 @@ public final class MusicManager {
 
     #if canImport(AVFoundation)
     private var player: AVAudioPlayer?
+    private var anthemPlayer: AVAudioPlayer?
     #endif
+    private var anthemLevel: Float = 0
+    private var anthemFadeLeft: Double = 0
+    private var anthemFadeItem: DispatchWorkItem?
+    private var pausedByUser = false
     private var currentTrack = ""
     public private(set) var activeTrack = ""
     private var trackVolume: Float = 1.0
@@ -54,7 +60,8 @@ public final class MusicManager {
 
     public func menuStopped() {
         menuRefs = max(0, menuRefs - 1)
-        if menuRefs == 0 {
+        // A menu screen disappearing after the game screen opened must not kill the game loop or the anthem.
+        if menuRefs == 0 && currentTrack == "music_menu" {
             stop()
         }
     }
@@ -93,7 +100,7 @@ public final class MusicManager {
 
         guard let url = soundURL, let p = try? AVAudioPlayer(contentsOf: url) else { return }
         p.numberOfLoops = -1
-        p.volume = min(max(volume * userVolume * duckFactor, 0), 1)
+        p.volume = min(max(volume * effectiveFactor, 0), 1)
         p.play()
         self.player = p
         #endif
@@ -109,14 +116,18 @@ public final class MusicManager {
     }
 
     public func pause() {
+        pausedByUser = true
         #if canImport(AVFoundation)
         player?.pause()
+        anthemPlayer?.pause()
         #endif
     }
 
     public func resume() {
+        pausedByUser = false
         #if canImport(AVFoundation)
         if enabled { player?.play() }
+        anthemPlayer?.play()
         #endif
     }
 
@@ -145,9 +156,98 @@ public final class MusicManager {
         DispatchQueue.main.asyncAfter(deadline: .now() + duration, execute: item)
     }
 
+    /// Multiplier applied to the background loop: it is fully silent while the pre-game anthem plays.
+    private var effectiveFactor: Float {
+        #if canImport(AVFoundation)
+        if anthemPlayer != nil { return 0 }
+        #endif
+        return userVolume * duckFactor
+    }
+
     private func applyVolume(_ volume: Float) {
         #if canImport(AVFoundation)
-        player?.volume = min(max(volume * userVolume * duckFactor, 0), 1)
+        player?.volume = min(max(volume * effectiveFactor, 0), 1)
+        #endif
+    }
+
+    // ------------------------------------------------------------ pre-game anthem
+
+    /// True while the anthem is loaded (it releases itself once it has finished playing).
+    public var anthemActive: Bool {
+        #if canImport(AVFoundation)
+        if let p = anthemPlayer, !p.isPlaying, !pausedByUser { releaseAnthem() }
+        return anthemPlayer != nil
+        #else
+        return false
+        #endif
+    }
+
+    private func releaseAnthem() {
+        anthemFadeItem?.cancel()
+        anthemFadeItem = nil
+        #if canImport(AVFoundation)
+        guard let p = anthemPlayer else { return }
+        anthemPlayer = nil
+        p.stop()
+        #endif
+        // give the game music back
+        applyVolume(trackVolume)
+    }
+
+    /// Plays the pre-game anthem once at the user's music level (x 0.9); the background loop is silent meanwhile.
+    /// Returns false when it cannot play (music off, or the file will not load) so the caller can shorten the hold.
+    @discardableResult
+    public func playAnthem() -> Bool {
+        releaseAnthem()
+        guard userVolume > 0 else { return false }
+        #if canImport(AVFoundation)
+        var url: URL?
+        for ext in ["wav", "mp3", "m4a", "caf", "ogg"] {
+            if let u = Bundle.main.url(forResource: "anthem_ocanada", withExtension: ext) { url = u; break }
+            #if SWIFT_PACKAGE
+            if let u = Bundle.module.url(forResource: "anthem_ocanada", withExtension: ext) { url = u; break }
+            #endif
+        }
+        guard let fileURL = url, let p = try? AVAudioPlayer(contentsOf: fileURL) else { return false }
+        anthemLevel = min(max(userVolume * 0.9, 0), 1)
+        p.volume = anthemLevel
+        anthemPlayer = p
+        applyVolume(trackVolume)   // mutes the loop
+        if !pausedByUser {
+            if !p.play() { releaseAnthem(); return false }
+        }
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    /// Fades the anthem out over about 400 ms (tap to skip, or the ceremony ended) and gives the loop back.
+    public func stopAnthem() {
+        #if canImport(AVFoundation)
+        guard anthemPlayer != nil else { return }
+        anthemFadeLeft = 0.4
+        scheduleAnthemFade()
+        #endif
+    }
+
+    private func scheduleAnthemFade() {
+        anthemFadeItem?.cancel()
+        let item = DispatchWorkItem { [weak self] in self?.anthemFadeStep() }
+        anthemFadeItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05, execute: item)
+    }
+
+    private func anthemFadeStep() {
+        #if canImport(AVFoundation)
+        guard let p = anthemPlayer else { return }
+        anthemFadeLeft -= 0.05
+        if anthemFadeLeft <= 0 {
+            releaseAnthem()
+        } else {
+            p.volume = anthemLevel * Float(anthemFadeLeft / 0.4)
+            scheduleAnthemFade()
+        }
         #endif
     }
 }

@@ -142,7 +142,7 @@ public final class HapticManager {
                 self.mediumImpact?.impactOccurred(intensity: 0.85)
                 self.mediumImpact?.prepare()
 
-            case .icing:
+            case .icing, .offside:
                 break
             }
         }

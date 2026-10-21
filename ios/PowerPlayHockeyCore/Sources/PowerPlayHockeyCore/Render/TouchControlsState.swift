@@ -32,4 +32,6 @@ protocol TouchControlsState: AnyObject {
     var hitDown: Bool { get }
 
     func currentCharge() -> Float
+    /// 1 right after a stick-flick deke fires, fading to 0 (joystick ring flash).
+    func dekeFlash() -> Float
 }

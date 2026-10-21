@@ -14,6 +14,8 @@ public struct GameContainerView: View {
     @State private var finalScore0 = 0
     @State private var finalScore1 = 0
     @State private var gameID = UUID()
+    /// The anthem plays only for the first game of a session; restarts and rematches skip it.
+    @State private var allowAnthem = true
 
     public init(config: MatchConfig, onDismiss: @escaping () -> Void) {
         self.config = config
@@ -24,6 +26,7 @@ public struct GameContainerView: View {
         ZStack {
             GameViewRepresentable(
                 config: config,
+                allowAnthem: allowAnthem,
                 isPaused: isPaused,
                 onPause: { isPaused = true },
                 onGameOver: { winner, s0, s1 in
@@ -61,6 +64,7 @@ public struct GameContainerView: View {
                     Button(action: {
                         SoundManager.shared.playClick()
                         isPaused = false
+                        allowAnthem = false
                         gameID = UUID()
                     }) {
                         Text("RESTART MATCH")
@@ -116,6 +120,7 @@ public struct GameContainerView: View {
                     Button(action: {
                         SoundManager.shared.playClick()
                         isGameOver = false
+                        allowAnthem = false
                         gameID = UUID()
                     }) {
                         Text("PLAY AGAIN")
@@ -149,12 +154,13 @@ public struct GameContainerView: View {
 
 private struct GameViewRepresentable: UIViewRepresentable {
     let config: MatchConfig
+    let allowAnthem: Bool
     let isPaused: Bool
     let onPause: () -> Void
     let onGameOver: (Int, Int, Int) -> Void
 
     func makeUIView(context: Context) -> GameView {
-        let view = GameView(frame: .zero, config: config)
+        let view = GameView(frame: .zero, config: config, allowAnthem: allowAnthem)
         view.onPause = onPause
         view.onGameOver = onGameOver
         return view

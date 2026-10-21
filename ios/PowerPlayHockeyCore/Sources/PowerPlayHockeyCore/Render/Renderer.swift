@@ -85,6 +85,8 @@ final class Renderer {
     let glassPaint = GPaint(color: HexColor.argb(190, 0x7D, 0xA6, 0xC9), style: .stroke, strokeWidth: 0.7)
     let logoPaint = GPaint()
     let logoText = GPaint(textAlign: .center, textSize: 7, bold: true)
+    let logoRing = GPaint(color: HexColor.white, style: .stroke, strokeWidth: 0.6)
+    let faceoffFill = GPaint()
     let faceoffPulse = GPaint(color: HexColor.argb("#FBBF24"), style: .stroke, strokeWidth: 0.4)
 
     // ----- Outdoor Winter Pond paints
@@ -160,9 +162,14 @@ final class Renderer {
     let sprayOuter = GPaint(color: HexColor.argb("#8FB3CC"))
     let sprayInner = GPaint(color: HexColor.white)
     let numberPaint = GPaint(textAlign: .center, textSize: 2.0, bold: true)
-    let numberShadowPaint = GPaint(color: HexColor.argb(200, 0, 0, 0), textAlign: .center, textSize: 2.0, bold: true, style: .stroke, strokeWidth: 0.35)
-    let ringPaint = GPaint(color: HexColor.argb("#FDE047"), style: .stroke, strokeWidth: 0.3)
-    let ringGlow = GPaint(color: HexColor.argb(60, 253, 224, 71))
+    let numberShadowPaint = GPaint(color: HexColor.argb(200, 0, 0, 0), style: .stroke, strokeWidth: 0.35, textAlign: .center, textSize: 2.0, bold: true)
+    let ringPaint = GPaint(color: HexColor.argb("#22C55E"), style: .stroke, strokeWidth: 0.42)
+    let ringInner = GPaint(color: HexColor.argb(200, 187, 247, 208), style: .stroke, strokeWidth: 0.18)
+    let ringGlow = GPaint(color: HexColor.argb(70, 34, 197, 94))
+    let markerPaint = GPaint(color: HexColor.argb("#22C55E"))
+    let markerEdge = GPaint(color: HexColor.white, style: .stroke, strokeWidth: 0.14)
+    let headPaint = GPaint()
+    let maskStripe = GPaint(style: .stroke, strokeCap: .round)
     let fireEmberPaint = GPaint()
 
     // Puck paints
@@ -200,6 +207,23 @@ final class Renderer {
     let switchShooterTitle = GPaint(color: HexColor.argb("#FDE68A"), textAlign: .center, bold: true)
     let switchShooterSub = GPaint(color: HexColor.white, textAlign: .center, bold: true)
     var switchShooterRect = CGRect.zero
+    let btnHighlight = GPaint(color: HexColor.white)
+    let bannerAccentPaint = GPaint()
+    let bandPaint = GPaint()
+    let bandText = GPaint(textAlign: .center, bold: true)
+
+    // HUD state added with the pull-goalie pill, faceoff lower third and anthem caption
+    /// False on a network guest (it has no input path for the pull-goalie toggle).
+    var pullPillEnabled = true
+    /// True on a network guest: it cannot skip the pre-game anthem.
+    var guest = false
+    var foPhase: Phase?
+    var foStart: CGFloat = 0
+    var foLabel = ""
+    var foScoreKey = -1
+    var foScoreStr = ""
+    var lastScoringTeam = -1
+    var lastScores: [Int] = [0, 0]
 
     // Per-team cached jersey shading
     private var shaderColor: [UInt32] = [0, 0]
@@ -519,9 +543,19 @@ final class Renderer {
         drawRink(canvas, world)
 
         if world.phase == .faceoff {
+            let fx = CGFloat(world.faceoffX), fy = CGFloat(world.faceoffY)
+            // Faceoff oval split by side in the two teams' colours, under the pulse ring.
+            let leftTeam = world.teams[0].ownGoalX < 0 ? 0 : 1
+            let li = world.teams[leftTeam].info.primary
+            let ri = world.teams[1 - leftTeam].info.primary
+            tmpRect = CGRect(left: fx - 9, top: fy - 9, right: fx + 9, bottom: fy + 9)
+            faceoffFill.color = HexColor.argb(90, HexColor.red(li), HexColor.green(li), HexColor.blue(li))
+            canvas.drawArc(tmpRect, 90, 180, true, faceoffFill)
+            faceoffFill.color = HexColor.argb(90, HexColor.red(ri), HexColor.green(ri), HexColor.blue(ri))
+            canvas.drawArc(tmpRect, 270, 180, true, faceoffFill)
             let r: CGFloat = 2.2 + 0.6 * sin(animTime * 8)
             faceoffPulse.alpha = 200
-            canvas.drawCircle(CGFloat(world.faceoffX), CGFloat(world.faceoffY), r, faceoffPulse)
+            canvas.drawCircle(fx, fy, r, faceoffPulse)
         }
 
         for s in world.allSkaters {
@@ -549,11 +583,21 @@ final class Renderer {
         }
         canvas.restore()
 
+        // Remember who scored last (for the goal banner's accent colour).
+        for t in 0...1 {
+            if world.teams[t].score > lastScores[t] { lastScoringTeam = t }
+            lastScores[t] = world.teams[t].score
+        }
+
         drawScoreboard(canvas, world)
         drawShootoutControls(canvas, world, localTeam)
         drawBanner(canvas, world)
-        if let controls = controls { drawControls(canvas, world, localTeam, controls) }
+        drawFaceoffBand(canvas, world)
+        // Controls and the pull-goalie pill stay hidden during the pre-game ceremony; pause stays available.
+        if let controls = controls, world.phase != .anthem { drawControls(canvas, world, localTeam, controls) }
         drawPauseButton(canvas)
+        drawPullButton(canvas, world, localTeam)
+        drawAnthemHint(canvas, world)
     }
 
     // ================================================================ rink
@@ -653,12 +697,19 @@ final class Renderer {
         canvas.drawLine(0, -Renderer.rinkHalfW, 0, Renderer.rinkHalfW, centerLine)
 
         // Centre ice logo + circle.
-        logoPaint.color = world.teams[0].info.primary
-        logoPaint.alpha = 60
-        canvas.drawCircle(0, 0, 10, logoPaint)
-        logoText.color = world.teams[0].info.primary
-        logoText.alpha = 120
-        canvas.drawText(world.teams[0].info.abbr, 0, 2.6, logoText)
+        let homeLogo = world.teams[0].info
+        logoPaint.color = homeLogo.primary
+        logoPaint.alpha = 140
+        canvas.drawCircle(0, 0, 12, logoPaint)
+        logoRing.strokeWidth = 0.6
+        logoRing.color = HexColor.white
+        canvas.drawCircle(0, 0, 12, logoRing)
+        logoRing.strokeWidth = 0.35
+        logoRing.color = homeLogo.secondary
+        canvas.drawCircle(0, 0, 10.2, logoRing)
+        logoText.color = homeLogo.text
+        logoText.alpha = 235
+        canvas.drawText(homeLogo.abbr, 0, 2.6, logoText)
         canvas.drawCircle(0, 0, Renderer.faceoffR, circleBlue)
         canvas.drawCircle(0, 0, 1, dotBlue)
 

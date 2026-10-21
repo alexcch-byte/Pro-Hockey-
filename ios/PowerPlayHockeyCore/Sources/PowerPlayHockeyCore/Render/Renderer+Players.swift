@@ -4,6 +4,13 @@ import Foundation
 /// drawShadow through drawPuck: skater/goalie body art, sprite visual overhaul and the puck.
 /// Port of the "players" section of Renderer.kt.
 extension Renderer {
+    /// Index (0..<16) of the pre-rendered sprite facing nearest to an angle in radians.
+    func facingIndex(_ angle: CGFloat) -> Int {
+        var i = Int((angle / (2 * .pi) * 16).rounded()) % 16
+        if i < 0 { i += 16 }
+        return i
+    }
+
     func drawShadow(_ canvas: GCanvas, _ s: Skater) {
         let r = CGFloat(s.radius) * 1.15 * Renderer.BODY_SCALE
         let x = CGFloat(s.x), y = CGFloat(s.y)
@@ -19,14 +26,19 @@ extension Renderer {
         let info = world.teams[s.team].info
         let r = CGFloat(s.radius)
         let x = CGFloat(s.x), y = CGFloat(s.y)
+        // A pulled goalie plays (and is drawn) as an extra skater.
+        let isG = s.actsAsGoalie(world)
+        let stunned = s.stunTimer > 0
         if controlled {
+            // Green controlled-player ring: glow, thick outer ring and a thinner inner ring.
             let pulse = 1 + 0.06 * sin(animTime * 6)
-            canvas.drawCircle(x, y, r * 2.2 * pulse, ringGlow)
-            canvas.drawCircle(x, y, r * 2.2 * pulse, ringPaint)
+            canvas.drawCircle(x, y, r * 2.4 * pulse, ringGlow)
+            canvas.drawCircle(x, y, r * 2.4 * pulse, ringPaint)
+            canvas.drawCircle(x, y, r * 1.8 * pulse, ringInner)
         }
 
         var drawnSprite = false
-        if !s.isGoalie && s.stunTimer <= 0 && s.swingTimer <= 0 && charge <= 0.05 && s.dekeTimer <= 0 {
+        if !isG && s.stunTimer <= 0 && s.swingTimer <= 0 && charge <= 0.05 && s.dekeTimer <= 0 {
             let latSpd = -CGFloat(s.vx) * sin(CGFloat(s.facing)) + CGFloat(s.vy) * cos(CGFloat(s.facing))
             let bankAngle = min(max(latSpd * 1.25, -16), 16)
             let effFacing = CGFloat(s.facing) + bankAngle * .pi / 180
@@ -42,7 +54,7 @@ extension Renderer {
                 canvas.drawImage(img, in: CGRect(x: x - halfSize, y: y - halfSize, width: size, height: size))
                 drawnSprite = true
             }
-        } else if s.isGoalie && s.stunTimer <= 0 && s.dekeTimer <= 0 && s.pokeTimer <= 0 {
+        } else if isG && s.stunTimer <= 0 && s.dekeTimer <= 0 && s.pokeTimer <= 0 {
             let stance = (s.goalieAction == .padStack) ? 2 : (s.butterfly ? 1 : 0)
             let fIdx = facingIndex(CGFloat(s.facing))
             if let img = goalieSprites[s.team][stance][fIdx] {
@@ -65,13 +77,12 @@ extension Renderer {
             let bankAngle = min(max(latSpd * 1.25, -16), 16)
             canvas.rotate(rot + bankAngle)
 
-            let stunned = s.stunTimer > 0
             if stunned {
                 // Flat on the ice.
                 canvas.rotate(90)
                 canvas.scale(1.45, 0.72)
             }
-            if s.isGoalie {
+            if isG {
                 drawGoalieBody(canvas, s, info, goalieShaderFor(s.team))
             } else {
                 drawSkaterBody(canvas, s, info, skaterShaderFor(s.team), controlled ? charge : 0)
@@ -97,10 +108,10 @@ extension Renderer {
         // Pro dual-tone drop shadow jersey numbers
         let numX = x - cos(CGFloat(s.facing)) * 0.5
         let numY = y - sin(CGFloat(s.facing)) * 0.5 + 0.7
-        numberShadowPaint.textSize = s.isGoalie ? 2.1 : 2.0
+        numberShadowPaint.textSize = isG ? 2.1 : 2.0
         canvas.drawText(String(s.number), numX, numY, numberShadowPaint)
         numberPaint.color = info.text
-        numberPaint.textSize = s.isGoalie ? 2.1 : 2.0
+        numberPaint.textSize = isG ? 2.1 : 2.0
         canvas.drawText(String(s.number), numX, numY, numberPaint)
 
         if stunned { drawDizzyStars(canvas, s) }
@@ -109,6 +120,20 @@ extension Renderer {
             tmpRect = CGRect(left: x - r * 1.9, top: y - r * 1.9, right: x + r * 1.9, bottom: y + r * 1.9)
             canvas.drawArc(tmpRect, -210, 240, false, meterBack)
             canvas.drawArc(tmpRect, -210, 240 * charge, false, meterFill)
+        }
+
+        if controlled {
+            // Bobbing triangle marker floating above the controlled skater (screen-up on the top-down ice).
+            let bob = sin(animTime * 6) * 0.25
+            let ty = y - r * 3.0 + bob
+            let tw: CGFloat = 0.8
+            tmpPath.reset()
+            tmpPath.moveTo(x - tw, ty - tw * 1.1)
+            tmpPath.lineTo(x + tw, ty - tw * 1.1)
+            tmpPath.lineTo(x, ty + tw * 0.4)
+            tmpPath.lineTo(x - tw, ty - tw * 1.1)
+            canvas.drawPath(tmpPath, markerPaint)
+            canvas.drawPath(tmpPath, markerEdge)
         }
     }
 
@@ -312,6 +337,13 @@ extension Renderer {
         let hx = 0.28 * r
         let hr = 0.58 * r
 
+        // Per-player look (hash of team + jersey number): hair at the back of the head, skin at the front edge.
+        let look = HeadLook.make(team: s.team, number: s.number)
+        headPaint.color = look.hair
+        canvas.drawCircle(hx - 0.30 * r, 0, 0.50 * r, headPaint)
+        headPaint.color = look.skin
+        canvas.drawCircle(hx + 0.42 * r, 0, 0.30 * r, headPaint)
+
         // Ear protectors
         canvas.drawCircle(hx - 0.08 * r, -0.52 * r, 0.14 * r, earGuardPaint)
         canvas.drawCircle(hx - 0.08 * r, 0.52 * r, 0.14 * r, earGuardPaint)
@@ -330,10 +362,12 @@ extension Renderer {
         canvas.drawLine(hx - 0.1 * r, -0.45 * r, hx + 0.35 * r, 0, chinStrapPaint)
         canvas.drawLine(hx - 0.1 * r, 0.45 * r, hx + 0.35 * r, 0, chinStrapPaint)
 
-        // Tinted curved Oakley-style visor with dual-specular gloss highlight
-        tmpRect = CGRect(left: hx - hr, top: -hr, right: hx + hr, bottom: hr)
-        canvas.drawArc(tmpRect, -50, 100, false, visorPaint)
-        canvas.drawArc(tmpRect, -45, 90, false, visorGleamPaint)
+        // Tinted curved visor with specular gloss (only some players wear one)
+        if look.visor {
+            tmpRect = CGRect(left: hx - hr, top: -hr, right: hx + hr, bottom: hr)
+            canvas.drawArc(tmpRect, -50, 100, false, visorPaint)
+            canvas.drawArc(tmpRect, -45, 90, false, visorGleamPaint)
+        }
         canvas.drawCircle(hx + 0.15 * r, -0.2 * r, 0.15 * r, glossPaint)
     }
 
@@ -504,6 +538,14 @@ extension Renderer {
         canvas.drawCircle(mx, 0, mr, maskPaint)
         canvas.drawCircle(mx, 0, mr, helmetOutline)
 
+        // Team-colour paint: centre stripe over the crown plus a side flash on each cheek
+        maskStripe.color = info.primary
+        maskStripe.strokeWidth = 0.2 * r
+        canvas.drawLine(mx - mr * 0.9, 0, mx + mr * 0.15, 0, maskStripe)
+        maskStripe.strokeWidth = 0.12 * r
+        canvas.drawLine(mx + mr * 0.1, -mr * 0.75, mx + mr * 0.1, -mr * 0.35, maskStripe)
+        canvas.drawLine(mx + mr * 0.1, mr * 0.35, mx + mr * 0.1, mr * 0.75, maskStripe)
+
         for yy: CGFloat in [-0.28, 0, 0.28] {
             canvas.drawLine(mx + 0.15 * r, yy * r, mx + 0.58 * r, yy * r * 0.8, catEyeCage)
         }
@@ -556,5 +598,44 @@ extension Renderer {
         canvas.drawCircle(x, y, 0.62, puckBevel)
         canvas.drawCircle(x, y, 0.38, puckRim)
         canvas.drawCircle(x - 0.12, y - 0.12, 0.18, glossPaint)
+    }
+}
+
+/// Deterministic per-player head look from (team, jersey number), identical on every device: skin tone,
+/// hair colour, stubble/beard and visor. A pure hash, no random state. (Port of CharacterArt.head()'s variety;
+/// the iOS renderer is top-down, so only hair, skin edge and visor are visible.)
+struct HeadLook {
+    let skin: UInt32
+    let hair: UInt32
+    let beard: Int      // 2 = beard, 1 = stubble (not visible from above, kept for parity)
+    let visor: Bool
+
+    private static let skinTones: [UInt32] = [
+        HexColor.argb("#F3CDAA"), HexColor.argb("#E8B994"), HexColor.argb("#D4A07A"), HexColor.argb("#B27A55"), HexColor.argb("#8A5A3C")
+    ]
+    private static let hairTones: [UInt32] = [
+        HexColor.argb("#1E140E"), HexColor.argb("#3B2616"), HexColor.argb("#6B4423"),
+        HexColor.argb("#C9A24A"), HexColor.argb("#9A3F1B"), HexColor.argb("#8A8A8A")
+    ]
+
+    private static func mix(_ v: UInt32) -> UInt32 {
+        var x = v &* 0x9E3779B9
+        x ^= x >> 15
+        x = x &* 0x2C1B3C6D
+        x ^= x >> 12
+        x = x &* 0x297A2D39
+        return x ^ (x >> 15)
+    }
+
+    static func make(team: Int, number: Int) -> HeadLook {
+        let h = mix(UInt32(truncatingIfNeeded: team &* 1009 &+ number &* 31 &+ 17))
+        func r(_ i: Int) -> Int { Int((mix(h &+ UInt32(truncatingIfNeeded: i &* 7919)) >> 1) % 100) }
+        let sr = r(1)
+        let skinIdx = sr < 30 ? 0 : (sr < 62 ? 1 : (sr < 82 ? 2 : (sr < 94 ? 3 : 4)))
+        let hr = r(2)
+        let hairIdx = hr < 28 ? 0 : (hr < 58 ? 1 : (hr < 76 ? 2 : (hr < 88 ? 3 : (hr < 95 ? 4 : 5))))
+        let b = r(3)
+        let beard = b < 20 ? 2 : (b < 46 ? 1 : 0)
+        return HeadLook(skin: skinTones[skinIdx], hair: hairTones[hairIdx], beard: beard, visor: r(4) < 30)
     }
 }

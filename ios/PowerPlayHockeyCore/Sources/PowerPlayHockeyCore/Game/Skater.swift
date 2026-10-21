@@ -36,6 +36,12 @@ final class Skater {
 
     var isGoalie: Bool { role == .g }
 
+    /// True for the goalie who is actually playing goal (a pulled goalie is just an extra skater).
+    func actsAsGoalie(_ w: World) -> Bool { role == .g && !w.goaliePulled[team] }
+
+    /// Mirrors world.goaliePulled for the physics layer (set by Simulation each tick).
+    var pulled: Bool = false
+
     var x: Float = 0
     var y: Float = 0
     var vx: Float = 0

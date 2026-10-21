@@ -24,6 +24,10 @@ public final class SoundManager {
     #endif
 
     private var skateToggle = false
+    private var lastPickupTake = -1
+    private var lastSaveTake = -1
+    /// Uptime (seconds) of the last short offside / icing whistle, so the long whistle that follows is skipped.
+    private var shortWhistleAt: Double = -1000
     private let rng = SeededRandom(seed: UInt64(Date().timeIntervalSince1970))
 
     init() {
@@ -38,7 +42,8 @@ public final class SoundManager {
             "puck_hit", "pass", "pickup", "faceoff", "wall_bounce", "post", "body_hit",
             "save", "whistle", "horn", "crowd_loop", "cheer", "skate1", "skate2",
             "organ_rally", "jingle_goal", "jingle_period", "jingle_win", "jingle_lose",
-            "button_click", "one_timer", "gasp", "penalty", "fire", "deke", "glass", "pad_stack", "boo"
+            "button_click", "one_timer", "gasp", "penalty", "fire", "deke", "glass", "pad_stack", "boo",
+            "whistle_short", "ui_toggle", "pickup_2", "pickup_3", "save_2", "save_3"
         ]
         for name in soundNames {
             if let url = findSoundURL(name: name) {
@@ -85,6 +90,13 @@ public final class SoundManager {
     private func playSound(_ name: String, level: Float, rate: Float = 1.0) {}
     #endif
 
+    /// Several takes of one sound; never repeats the previous take.
+    private func nextTake(_ count: Int, last: inout Int) -> Int {
+        let i = (last < 0 || count == 1) ? rng.nextInt(count) : (last + 1 + rng.nextInt(count - 1)) % count
+        last = i
+        return i
+    }
+
     private func jitter(_ amount: Float) -> Float {
         1.0 + (rng.nextFloat() * 2.0 - 1.0) * amount
     }
@@ -99,7 +111,8 @@ public final class SoundManager {
         case .pass:
             playSound("pass", level: 0.75, rate: jitter(0.1))
         case .pickup:
-            playSound("pickup", level: 0.35, rate: jitter(0.15))
+            let takes = ["pickup", "pickup_2", "pickup_3"]
+            playSound(takes[nextTake(takes.count, last: &lastPickupTake)], level: 0.35, rate: jitter(0.15))
         case .faceoffDrop:
             playSound("faceoff", level: 0.8)
         case .boards:
@@ -112,7 +125,8 @@ public final class SoundManager {
         case .poke:
             playSound("pass", level: 0.5, rate: 0.8)
         case .save:
-            playSound("save", level: 0.9, rate: jitter(0.1))
+            let takes = ["save", "save_2", "save_3"]
+            playSound(takes[nextTake(takes.count, last: &lastSaveTake)], level: 0.9, rate: jitter(0.1))
             if rng.nextFloat() < 0.3 {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { [weak self] in
                     self?.playSound("gasp", level: 0.7)
@@ -121,7 +135,8 @@ public final class SoundManager {
         case .hit:
             playSound("body_hit", level: 1.0, rate: jitter(0.1))
         case .whistle:
-            playSound("whistle", level: 0.9)
+            // Offside / icing already played the short double tweet this tick; do not stack the long one on it.
+            if ProcessInfo.processInfo.systemUptime - shortWhistleAt > 0.2 { playSound("whistle", level: 0.9) }
             MusicManager.shared.duck(level: 0.35, duration: 1.5)
         case .penalty:
             playSound("penalty", level: 1.0)
@@ -172,8 +187,11 @@ public final class SoundManager {
             playSound("glass", level: 1.0, rate: jitter(0.05))
         case .goalieSaveMove:
             playSound("pad_stack", level: 0.9, rate: jitter(0.08))
-        case .icing:
-            break
+        case .icing, .offside:
+            // Short double tweet; the WHISTLE event sent with it skips its long whistle.
+            shortWhistleAt = ProcessInfo.processInfo.systemUptime
+            playSound("whistle_short", level: 0.9)
+            MusicManager.shared.duck(level: 0.35, duration: 1.0)
         }
     }
 
@@ -213,6 +231,11 @@ public final class SoundManager {
 
     public func playClick() {
         playSound("button_click", level: 0.6)
+    }
+
+    /// Two-tick toggle sound (pull-goalie pill).
+    public func playToggle() {
+        playSound("ui_toggle", level: 0.6)
     }
 
     public func release() {

@@ -553,3 +553,16 @@ Not ported, and why:
 - Network client behaviour (no client path in the iOS GameView): `guest` and `pullPillEnabled` are wired but only take effect if one is added.
 
 Riskiest spots to check at the first Xcode build: the `GPaint(...)` argument order of every paint added in Renderer.swift; `ctx` colour maths with `UInt32` in `drawFaceoffBand`; the ternary-on-continuation-line in `drawFaceoffBand`; `Renderer.facingIndex`; `MusicManager` (`#if canImport(AVFoundation)` blocks around `anthemPlayer`, `anthemActive` mutating in a getter); SwiftUI `onChange(of:)` use in MatchSettingsView; the `State(initialValue:)` assignments in the two view initialisers; and the many pre-existing places in the Render files I could not compile (more latent errors like the three I fixed are possible).
+
+## iOS port sync (GTHL, offsides setting, version 1.0)
+
+- Info.plist: `CFBundleShortVersionString` updated from `1.0.0` to `1.0` to match Android `versionName = "1.0"`.
+- Model/TeamInfo.swift: added `LEAGUE_GTHL` ("GTHL"), `gthl(...)` helper, 32 competitive GTHL clubs (indices 60-91), updated `ALL` (now 92 clubs), `LEAGUES` to include GTHL, added `normalizeLeague(_:)`.
+- Model/Prefs.swift: added `keyOffsides`, `offsideEnabled()`, `setOffsideEnabled(_:)`, and updated `league()` to use `TeamInfo.normalizeLeague`.
+- Game/World.swift: added `offsidesEnabled` property.
+- Game/Simulation.swift: gated `checkOffside()` and offside touch whistles behind `world.offsidesEnabled`.
+- Game/AIController.swift: gated offside blue-line target clamp behind `world.offsidesEnabled`.
+- App/GameView.swift: initialized `world.offsidesEnabled` from `Prefs.offsideEnabled()` (when not in shootout mode).
+- UI/MatchSettingsView.swift: relabeled Timbits button to "CALGARY TIMBITS", added "GTHL" button, added "Offsides" toggle switch.
+- UI/MainMenuView.swift: updated how-to guide to mention CALGARY TIMBITS, NHL or GTHL leagues and optional offsides setting.
+

@@ -67,13 +67,16 @@ final class TouchControls: TouchControlsState {
     private var hitPointer: AnyHashable?
     private var shootDownTime: Double = 0
 
-    // Automatic Deke detection on rapid joystick movement / flick
+    // Automatic deke: flick detection over a short ring buffer of recent stick positions
     var carrying = false
-    var dekeEnabled = true
-    private var prevJoyTime: Double = 0
-    private var prevJoyMx: Float = 0
-    private var prevJoyMy: Float = 0
+    private static let HIST = 12
+    private var histT = [Double](repeating: 0, count: 12)
+    private var histX = [Float](repeating: 0, count: 12)
+    private var histY = [Float](repeating: 0, count: 12)
+    private var histN = 0
+    private var histHead = 0
     private var dekeCooldownUntil: Double = 0
+    private var dekeFlashUntil: Double = 0
 
     private var screenW: CGFloat = 1
     private var screenH: CGFloat = 1
@@ -97,6 +100,12 @@ final class TouchControls: TouchControlsState {
         shootX = screenW - 95 * density; shootY = screenH - 95 * density
         passX = screenW - 215 * density; passY = screenH - 80 * density
         hitX = screenW - 105 * density; hitY = screenH - 215 * density
+    }
+
+    /// 1 right after a stick-flick deke fires, fading to 0 (for a brief joystick-ring flash).
+    func dekeFlash() -> Float {
+        let left = dekeFlashUntil - now()
+        return left <= 0 ? 0 : Float(min(max(left / 0.22, 0), 1))
     }
 
     func currentCharge() -> Float {
@@ -123,7 +132,7 @@ final class TouchControls: TouchControlsState {
         lock.unlock()
         joyPointer = nil; shootPointer = nil; passPointer = nil; hitPointer = nil
         joyActive = false; shootDown = false; passDown = false; hitDown = false
-        prevJoyTime = 0; prevJoyMx = 0; prevJoyMy = 0
+        histN = 0
     }
 
     // ------------------------------------------------------------- pointers
@@ -155,9 +164,7 @@ final class TouchControls: TouchControlsState {
             joyAnchorY = y
             joyKnobX = x
             joyKnobY = y
-            prevJoyTime = now()
-            prevJoyMx = 0
-            prevJoyMy = 0
+            histN = 0
             lock.lock(); input.moveX = 0; input.moveY = 0; lock.unlock()
         }
     }
@@ -189,30 +196,49 @@ final class TouchControls: TouchControlsState {
             my = my / mag * scaled
         }
 
-        // Detect rapid flick / sharp direction change for automatic deke move
+        // Flick detection: compare against the stick position ~40-150 ms ago (ring buffer, no allocation).
         let currentTime = now()
-        let dt = currentTime - prevJoyTime
-        if dt >= 0.025 && dt <= 0.220 {
-            let prevMag = hypot(prevJoyMx, prevJoyMy)
-            let curMag = hypot(mx, my)
-            if carrying && dekeEnabled && curMag > 0.7 && currentTime > dekeCooldownUntil {
-                let deltaDist = hypot(mx - prevJoyMx, my - prevJoyMy)
-                let stickSpeed = deltaDist / Float(dt)
-                let dot: Float = (prevMag > 0.28 && curMag > 0.28)
-                    ? (mx * prevJoyMx + my * prevJoyMy) / (curMag * prevMag)
-                    : 1.0
-                let isSharpCut = (dot < -0.35 && prevMag > 0.6 && dt <= 0.150)
-                let isFastFlick = (stickSpeed > 11.0 && curMag > 0.75)
-                if isSharpCut || isFastFlick {
-                    lock.lock(); input.deke = true; lock.unlock()
-                    dekeCooldownUntil = currentTime + 0.5
+        if carrying && currentTime > dekeCooldownUntil && hypot(mx, my) > 0.6 {
+            var i = 0
+            while i < histN {
+                let k = (histHead - 1 - i + Self.HIST) % Self.HIST
+                let age = currentTime - histT[k]
+                if age > 0.150 { break }
+                if age >= 0.040 {
+                    let px = histX[k]
+                    let py = histY[k]
+                    let pm = hypot(px, py)
+                    let cm = hypot(mx, my)
+                    if pm > 0.35 {
+                        let dot = (mx * px + my * py) / (cm * pm)
+                        let delta = hypot(mx - px, my - py)
+                        let rate = delta / Float(age)
+                        // Reversal: thumb swung from one side of the pad to the other.
+                        let reversal = dot < -0.2 && pm > 0.55 && cm > 0.7 && delta > 1.0
+                        // Sideways/diagonal flick: large AND fast swing (ordinary hard turns are slower).
+                        let swing = delta > 1.3 && rate > 8 && dot < 0.55
+                        if reversal || swing {
+                            let cross = px * my - py * mx
+                            let thr = 0.15 * pm * cm
+                            let sgn: Float = cross > thr ? 1 : (cross < -thr ? -1 : 0)
+                            lock.lock(); input.deke = true; input.dekeSign = sgn; lock.unlock()
+                            dekeCooldownUntil = currentTime + 0.55
+                            dekeFlashUntil = currentTime + 0.22
+                            break
+                        }
+                    }
                 }
+                i += 1
             }
         }
-        if dt >= 0.025 {
-            prevJoyMx = mx
-            prevJoyMy = my
-            prevJoyTime = currentTime
+        // Record sample (at most one per ~12 ms so the buffer covers the history window).
+        let last = (histHead - 1 + Self.HIST) % Self.HIST
+        if histN == 0 || currentTime - histT[last] >= 0.012 {
+            histT[histHead] = currentTime
+            histX[histHead] = mx
+            histY[histHead] = my
+            histHead = (histHead + 1) % Self.HIST
+            if histN < Self.HIST { histN += 1 }
         }
 
         lock.lock(); input.moveX = mx; input.moveY = my; lock.unlock()
@@ -222,9 +248,7 @@ final class TouchControls: TouchControlsState {
         if let jp = joyPointer, id == jp {
             joyPointer = nil
             joyActive = false
-            prevJoyTime = 0
-            prevJoyMx = 0
-            prevJoyMy = 0
+            histN = 0
             lock.lock(); input.moveX = 0; input.moveY = 0; lock.unlock()
         } else if let sp = shootPointer, id == sp {
             shootPointer = nil

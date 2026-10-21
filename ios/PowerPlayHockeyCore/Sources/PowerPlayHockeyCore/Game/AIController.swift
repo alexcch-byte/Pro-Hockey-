@@ -8,6 +8,9 @@ final class AIController {
     private final class Pt { var x: Float = 0; var y: Float = 0 }
     private let leadPuck = Pt()
 
+    /// The goalie actually in net; a pulled goalie plays as a skater.
+    private func goalieNow(_ s: Skater) -> Bool { s.isGoalie && !s.pulled }
+
     private enum Situation { case own, opp, loose }
 
     private static let MARK_GOALSIDE_FT: Float = 3
@@ -120,6 +123,11 @@ final class AIController {
         if abs(s.aiTargetX) > Rink.GOAL_LINE_X - 1.5 && abs(s.aiTargetY) < 5 {
             s.aiTargetY = s.aiTargetY < 0 ? -6 : 6
         }
+        // Offside: without the puck, stay on the neutral side of the attacking blue line until the puck is in the zone.
+        if world.offsidesEnabled && carrier !== s && team.toAttackX(puck.x) <= Rink.BLUE_LINE_X {
+            let lim = Rink.BLUE_LINE_X - 2.5
+            if team.toAttackX(s.aiTargetX) > lim { s.aiTargetX = team.toWorldX(lim) }
+        }
         s.aiTargetX = min(max(s.aiTargetX, -96), 96)
         s.aiTargetY = min(max(s.aiTargetY, -39), 39)
     }
@@ -138,7 +146,7 @@ final class AIController {
         var best: Skater?
         var bestD = Float.greatestFiniteMagnitude
         for s in team.skaters {
-            if s.isGoalie || s.index == humanIdx || s.stunTimer > 0 { continue }
+            if goalieNow(s) || s.inPenaltyBox || s.index == humanIdx || s.stunTimer > 0 { continue }
             let d = s.distanceTo(x, y) - (s.aiChaser ? 3.5 : 0)
             if d < bestD { bestD = d; best = s }
         }
@@ -153,7 +161,7 @@ final class AIController {
         var aD = Float.greatestFiniteMagnitude
         if netCrash {
             for s in team.skaters {
-                if s.isGoalie || s.role == .ld || s.role == .rd || s.index == humanIdx || s.stunTimer > 0 { continue }
+                if goalieNow(s) || s.inPenaltyBox || s.role == .ld || s.role == .rd || s.index == humanIdx || s.stunTimer > 0 { continue }
                 let d = s.distanceTo(x, y) - (s.aiChaser ? 3.5 : 0)
                 if d < aD { aD = d; a = s }
             }
@@ -163,7 +171,7 @@ final class AIController {
         let aFixed = (a != nil) // net-crash forward already chosen as A
         for s in team.skaters {
             if aFixed && s === a { continue }
-            if s.isGoalie || s.index == humanIdx || s.stunTimer > 0 { continue }
+            if goalieNow(s) || s.inPenaltyBox || s.index == humanIdx || s.stunTimer > 0 { continue }
             var d = s.distanceTo(x, y) - (s.aiChaser ? 3.5 : 0)
             if netCrash && (s.role == .ld || s.role == .rd) { d += 12 }
             if aFixed {
@@ -187,13 +195,13 @@ final class AIController {
         var bestScore = Float.greatestFiniteMagnitude
         let isD = s.role == .ld || s.role == .rd
         for o in opp.skaters {
-            if o.isGoalie || o === carrier || o.inPenaltyBox || o.stunTimer > 0 { continue }
+            if goalieNow(o) || o === carrier || o.inPenaltyBox || o.stunTimer > 0 { continue }
             let oax = team.toAttackX(o.x)
             if oax > -Rink.BLUE_LINE_X { continue } // only attackers already in (or entering) our zone
             // Claimed by a teammate who is still covering him?
             var taken = false
             for t in team.skaters {
-                if t === s || t.isGoalie || t.aiChaser || t.inPenaltyBox || t.stunTimer > 0 { continue }
+                if t === s || goalieNow(t) || t.aiChaser || t.inPenaltyBox || t.stunTimer > 0 { continue }
                 if world.isHuman(team.id) && t.index == world.controlled[team.id] { continue }
                 if t.markId == o.index { taken = true; break }
             }
@@ -234,7 +242,7 @@ final class AIController {
         var hanger: Skater?
         var hx: Float = 0
         for o in opp.skaters {
-            if o.isGoalie || o.inPenaltyBox { continue }
+            if goalieNow(o) || o.inPenaltyBox { continue }
             let oax = team.toAttackX(o.x)
             if oax > limit { continue }
             if hanger == nil || oax < hx { hanger = o; hx = oax }
@@ -245,7 +253,7 @@ final class AIController {
         let humanTeam = world.isHuman(team.id)
         let carrier = puck.carrier
         for t in team.skaters {
-            if t === s || t.isGoalie || (t.role != .ld && t.role != .rd) { continue }
+            if t === s || goalieNow(t) || (t.role != .ld && t.role != .rd) { continue }
             if t.inPenaltyBox || t.stunTimer > 0 || t.aiChaser || t === carrier { continue }
             if humanTeam && t.index == world.controlled[team.id] { continue }
             if t.distanceTo(h.x, h.y) < s.distanceTo(h.x, h.y) { return false }
@@ -269,7 +277,7 @@ final class AIController {
             case .rw: return (68, 22)
             case .ld: return (40, -24)
             case .rd: return (40, 24)
-            case .g: return (0, 0)
+            case .g: return (40, 0)
             }
         }
         switch role {
@@ -278,7 +286,7 @@ final class AIController {
         case .rw: return inZone ? (74, 13) : (min(pax + 12, 23), 24)
         case .ld: return inZone ? (36, -18) : (pax - 20, -14)
         case .rd: return inZone ? (36, 18) : (pax - 20, 14)
-        case .g: return (0, 0)
+        case .g: return (inZone ? 36 : pax - 20, 0)
         }
     }
 
@@ -291,7 +299,7 @@ final class AIController {
         case .rw: return (min(cax - 4, 15), 18)
         case .ld: return behindNet ? (-80, -6) : (min(max(cax - 16, -82), 5), -9 + cay * 0.25)
         case .rd: return behindNet ? (-80, 6) : (min(max(cax - 16, -82), 5), 9 + cay * 0.25)
-        case .g: return (0, 0)
+        case .g: return (behindNet ? -80 : min(max(cax - 16, -82), 5), cay * 0.25)
         }
     }
 
@@ -308,7 +316,7 @@ final class AIController {
         let fx = cos(s.facing) * team.attackDir
         let fy = sin(s.facing)
         for o in opp.skaters {
-            if o.isGoalie { continue }
+            if goalieNow(o) || o.inPenaltyBox { continue }
             let d = s.distanceTo(o.x, o.y)
             if d < pressureD {
                 let ox = team.toAttackX(o.x) - sax
@@ -339,12 +347,12 @@ final class AIController {
                     var target: Skater?
                     var bestQ = ownQ + 0.2
                     for m in team.skaters {
-                        if m === s || m.isGoalie || m.stunTimer > 0 || m.inPenaltyBox { continue }
+                        if m === s || goalieNow(m) || m.stunTimer > 0 || m.inPenaltyBox { continue }
                         let q = shotQuality(team.toAttackX(m.x), m.y)
                         if q <= bestQ { continue }
                         var open = true
                         for o in opp.skaters {
-                            if !o.isGoalie && o.distanceTo(m.x, m.y) < 5 { open = false; break }
+                            if !goalieNow(o) && o.distanceTo(m.x, m.y) < 5 { open = false; break }
                         }
                         if open { bestQ = q; target = m }
                     }

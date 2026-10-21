@@ -23,7 +23,7 @@ ios/
         ├── Model/
         │   ├── MatchConfig.swift        (ArenaType: Indoor/Winter Pond, GameMode: Quick/Shootout/WiFi)
         │   ├── Prefs.swift              (UserDefaults persistence: SFX, Music, Arena, Tournament)
-        │   ├── TeamInfo.swift           (28-club roster with primary/secondary/text hex colors)
+        │   ├── TeamInfo.swift           (92-club roster across Timbits, Pro, NHL, and GTHL leagues)
         │   └── TournamentData.swift     (8-team playoff bracket, AI simulation, Codable)
         ├── Game/
         │   ├── World.swift              (Momentum, On Fire, Shootout state, Shattered Glass, Penalties)

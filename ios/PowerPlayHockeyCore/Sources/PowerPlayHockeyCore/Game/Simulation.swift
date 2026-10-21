@@ -9,6 +9,9 @@ final class Simulation {
     static let GOAL_HOLD: Float = 3.2
     static let PERIOD_HOLD: Float = 3.5
     static let HUMAN_GOALIE_SKILL: Float = 0.92
+    static let HUMAN_GOALIE_LEAD: Float = 0.10
+    /// Length of the pre-game anthem ceremony in seconds (the audio is about 30 s with its reverb tail).
+    static let ANTHEM_HOLD: Float = 28.5
 
     let world: World
     private let ai: AiSettings
@@ -17,6 +20,13 @@ final class Simulation {
     private var normalX: Float = 0
     private var normalY: Float = 0
 
+    /// Tournament matches must produce a winner: overtime is uncapped sudden death. (The regular-season overtime cap is not in this port yet, so overtime is always uncapped.)
+    var uncappedOvertime = false
+
+    // Offside tracking (host only). offsideMark[team * 6 + index]: skater is past the attacking blue line while the puck is not.
+    private var offsideMark = [Bool](repeating: false, count: 12)
+    private var prevPuckAx: [Float] = [0, 0]
+
     init(world: World, ai: AiSettings, seed: UInt64 = UInt64.random(in: UInt64.min...UInt64.max)) {
         self.world = world
         self.ai = ai
@@ -24,7 +34,17 @@ final class Simulation {
         self.aiController = AIController(ai: ai, rng: rng)
     }
 
-    func start() {
+    func start(anthem: Bool = false) {
+        // Clean per-match state so a rematch never starts with a pulled goalie, old momentum or a penalty.
+        if world.penaltyTeam != -1 { releasePenalty(quiet: true) }
+        for sk in world.allSkaters { sk.inPenaltyBox = false }
+        world.penaltyTeam = -1; world.penaltyTimer = 0; world.penaltyPlayerIndex = -1
+        world.momentum[0] = 0; world.momentum[1] = 0
+        world.fireTimer[0] = 0; world.fireTimer[1] = 0
+        world.switchLock[0] = 0; world.switchLock[1] = 0
+        world.goaliePulled[0] = false
+        world.goaliePulled[1] = false
+        resetOffside()
         if world.isShootout {
             world.shootoutRound = 1
             world.shootoutTurn = 0
@@ -35,6 +55,11 @@ final class Simulation {
         } else {
             setupFaceoff(0, 0)
             world.showBanner(world.periodText() + " PERIOD", world.teams[0].info.fullName + " vs " + world.teams[1].info.fullName, 2.2)
+            if anthem {
+                // Pre-game ceremony: players lined up, clock stopped, puck not dropped until it ends or is skipped.
+                world.phase = .anthem
+                world.phaseTimer = Simulation.ANTHEM_HOLD
+            }
         }
     }
 
@@ -97,10 +122,80 @@ final class Simulation {
             if w.phaseTimer <= 0 { startNextPeriod() }
         case .gameOver:
             coastAll(dt)
+        case .anthem:
+            coastAll(dt)
+            w.phaseTimer -= dt
+            if w.phaseTimer <= 0 {
+                w.phase = .faceoff
+                w.phaseTimer = Simulation.FACEOFF_HOLD
+                w.showBanner(w.periodText() + " PERIOD", w.teams[0].info.fullName + " vs " + w.teams[1].info.fullName, 1.6)
+            }
         case .play:
             playStep(dt, inputs)
+            if w.offsidesEnabled && w.phase == .play && !w.isShootout { checkOffside() }
         }
         for t in 0...1 { inputs[t]?.clearPulses() }
+    }
+
+    /// Ends the pre-game ceremony on the next step (a tap); the faceoff hold and puck drop follow as usual.
+    func skipAnthem() {
+        if world.phase == .anthem { world.phaseTimer = 0 }
+    }
+
+    private func resetOffside() {
+        for i in 0..<12 { offsideMark[i] = false }
+        for t in 0...1 { prevPuckAx[t] = world.team(t).toAttackX(world.puck.x) }
+    }
+
+    /// NHL-style offside: an attacker entirely past the attacking blue line before the puck is
+    /// marked; if the puck then enters the zone (not carried/played in by the defenders) while
+    /// anyone is still marked, play is whistled. Returning to the neutral zone clears the mark.
+    private func checkOffside() {
+        let w = world
+        let p = w.puck
+        for t in 0...1 {
+            let team = w.teams[t]
+            let pax = team.toAttackX(p.x)
+            let prev = prevPuckAx[t]
+            prevPuckAx[t] = pax
+            if pax > Rink.BLUE_LINE_X {
+                if prev <= Rink.BLUE_LINE_X {
+                    let mover = p.carrier?.team ?? p.lastTouchTeam
+                    if mover == t {
+                        for s in team.skaters {
+                            if offsideMark[t * 6 + s.index] { callOffside(team, s); return }
+                        }
+                    }
+                }
+                for i in 0..<6 { offsideMark[t * 6 + i] = false }
+            } else {
+                let carrier = p.carrier
+                for s in team.skaters {
+                    let k = t * 6 + s.index
+                    if s.actsAsGoalie(w) || s.inPenaltyBox || s === carrier { offsideMark[k] = false; continue }
+                    let ax = team.toAttackX(s.x)
+                    if ax - s.radius > Rink.BLUE_LINE_X {
+                        offsideMark[k] = true
+                    } else if ax < Rink.BLUE_LINE_X {
+                        offsideMark[k] = false
+                    }
+                }
+            }
+        }
+    }
+
+    private func callOffside(_ team: Team, _ offender: Skater) {
+        let w = world
+        let p = w.puck
+        for i in 0..<12 { offsideMark[i] = false }
+        w.showBanner("OFFSIDE", team.info.name, 1.3)
+        w.events.append(.offside)
+        let fx = team.toWorldX(Rink.NEUTRAL_DOT_X)
+        let fy: Float = abs(p.y) < 1 ? (rng.nextBool() ? Rink.DOT_Y : -Rink.DOT_Y) : sign(p.y) * Rink.DOT_Y
+        p.vx = 0; p.vy = 0
+        p.shot = false
+        p.passTarget = nil
+        startWhistle(fx, fy)
     }
 
     private func coastAll(_ dt: Float) {
@@ -127,7 +222,7 @@ final class Simulation {
         for team in w.teams {
             let a = team.attackDir
             for s in team.skaters {
-                if s.isGoalie {
+                if s.actsAsGoalie(w) {
                     let gx = team.ownGoalX + a * 2.8
                     s.place(gx, 0, a > 0 ? 0 : .pi)
                     continue
@@ -139,7 +234,7 @@ final class Simulation {
                 case .rw: (ax, ay) = (-2.5, 16)
                 case .ld: (ax, ay) = (-20, -10)
                 case .rd: (ax, ay) = (-20, 10)
-                case .g: (ax, ay) = (0, 0)
+                case .g: (ax, ay) = (-10, 0)
                 }
                 var x = fx + a * ax
                 var y = fy + ay
@@ -147,11 +242,14 @@ final class Simulation {
                 y = min(max(y, -38), 38)
                 s.place(x, y, atan2(fy - y, fx - x))
             }
-            if w.isHuman(team.id) { w.controlled[team.id] = 0 }
+            if w.isHuman(team.id) {
+                w.controlled[team.id] = team.skaters.first(where: { !$0.actsAsGoalie(w) && !$0.inPenaltyBox })?.index ?? 0
+            }
         }
         w.phase = .faceoff
         w.phaseTimer = Simulation.FACEOFF_HOLD
         w.events.append(.faceoffSet)
+        resetOffside()
     }
 
     private func dropPuck(_ inputs: [PlayerInput?]) {
@@ -166,6 +264,7 @@ final class Simulation {
         } else {
             winner = rng.nextBool() ? 0 : 1
         }
+        resetOffside()
         let a = w.teams[winner].attackDir
         w.puck.vx = -a * (15 + rng.nextFloat() * 8)
         w.puck.vy = (rng.nextFloat() - 0.5) * 18
@@ -207,7 +306,7 @@ final class Simulation {
         w.goaliePulled[1] = false
 
         if w.penaltyTeam != -1 && w.penaltyTeam != scorer.id {
-            releasePenalty()
+            releasePenalty(quiet: true)
         }
     }
 
@@ -317,6 +416,8 @@ final class Simulation {
             let speedMul: Float = (w.isHuman(team.id) ? 1 : ai.speedMul) * fireMul
             let goalieSkill: Float = w.isHuman(team.id) ? Simulation.HUMAN_GOALIE_SKILL : ai.goalieSkill
             let padScale: Float = w.isHuman(team.id) ? 1 : ai.goaliePadScale
+            let goalieLead: Float = w.isHuman(team.id) ? Simulation.HUMAN_GOALIE_LEAD : ai.goalieLead
+            team.goalie.pulled = w.goaliePulled[team.id]
 
             for s in team.skaters {
                 if s.inPenaltyBox { continue }
@@ -356,7 +457,7 @@ final class Simulation {
                             let pdy = w.puck.y - s.y
                             s.facing = atan2(pdy, pdx)
                         } else {
-                            aiController.updateGoalie(w, team, s, skill: goalieSkill, padScale: padScale, dt: dt)
+                            aiController.updateGoalie(w, team, s, skill: goalieSkill, padScale: padScale, leadSeconds: goalieLead, dt: dt)
                         }
                     } else if w.isShootout && team.id == w.shootoutTurn && s.index == w.shootoutShooterIndex[w.shootoutTurn] {
                         // Goalie is active shooter in shootout!
@@ -371,7 +472,7 @@ final class Simulation {
                             aiController.updateSkater(w, team, s, speedMul: speedMul, dt: dt, sim: self)
                         }
                     } else {
-                        aiController.updateGoalie(w, team, s, skill: goalieSkill, padScale: padScale, dt: dt)
+                        aiController.updateGoalie(w, team, s, skill: goalieSkill, padScale: padScale, leadSeconds: goalieLead, dt: dt)
                     }
                 } else if s.index == humanIdx {
                     let input = inputs[team.id]
@@ -393,7 +494,7 @@ final class Simulation {
         // AI puck carrier deke attempt against lunging opponents
         if let carrier = w.puck.carrier, !w.isHuman(carrier.team), carrier.dekeTimer <= 0, carrier.actionCooldown <= 0 {
             for o in w.opponent(carrier.team).skaters {
-                if !o.isGoalie && (o.checkTimer > 0 || o.distanceTo(carrier.x, carrier.y) < 6) {
+                if !o.actsAsGoalie(w) && !o.inPenaltyBox && (o.checkTimer > 0 || o.distanceTo(carrier.x, carrier.y) < 6) {
                     if rng.nextFloat() < 0.35 {
                         startDeke(carrier)
                         break
@@ -405,13 +506,24 @@ final class Simulation {
         PhysicsEngine.resolveSkaterCollisions(w.allSkaters) { a, b, closing in self.handleContact(a, b, closing) }
         for s in w.allSkaters { PhysicsEngine.constrainSkater(s) }
 
+        // Contact may have stripped the puck or ended the play; don't carry for a player who lost it.
+        if w.phase != .play { return }
+
         if let carrier = w.puck.carrier {
             PhysicsEngine.carryPuck(w.puck, carrier, dt)
             contestPuck(carrier, dt)
         } else {
-            let end = PhysicsEngine.updatePuck(w.puck, dt: dt, events: &w.events)
-            if end != 0 { scoreGoal(end); return }
-            if !handleGoalies() { tryPickups() }
+            // Substep fast pucks so the (discrete) goalie test can't be tunnelled like the swept goal test.
+            let pk = w.puck
+            let steps = min(max(Int(ceil(pk.speed * dt / 1.5)), 1), 4)
+            let sdt = dt / Float(steps)
+            for _ in 0..<steps {
+                let end = PhysicsEngine.updatePuck(pk, dt: sdt, events: &w.events)
+                if end != 0 { scoreGoal(end); return }
+                if handleGoalies() { break }
+                tryPickups()
+                if pk.carrier != nil { break }
+            }
         }
     }
 
@@ -420,7 +532,7 @@ final class Simulation {
         if w.isShootout { return }
         let team = w.team(t)
         let carrier = w.puck.carrier
-        if let carrier = carrier, carrier.team == t, !carrier.isGoalie {
+        if let carrier = carrier, carrier.team == t, !carrier.actsAsGoalie(w) {
             w.controlled[t] = carrier.index
             return
         }
@@ -432,7 +544,7 @@ final class Simulation {
             var best: Skater?
             var bestD = Float.greatestFiniteMagnitude
             for s in team.skaters {
-                if s.isGoalie || s.inPenaltyBox || s === cur { continue }
+                if s.actsAsGoalie(w) || s.inPenaltyBox || s === cur { continue }
                 let d = s.distanceTo(px, py)
                 if d < bestD { bestD = d; best = s }
             }
@@ -443,7 +555,7 @@ final class Simulation {
         var nearest: Skater?
         var nearestD = Float.greatestFiniteMagnitude
         for s in team.skaters {
-            if s.isGoalie || s.inPenaltyBox || s.stunTimer > 0 { continue }
+            if s.actsAsGoalie(w) || s.inPenaltyBox || s.stunTimer > 0 { continue }
             let d = s.distanceTo(px, py)
             if d < nearestD { nearestD = d; nearest = s }
         }
@@ -457,7 +569,7 @@ final class Simulation {
         let w = world
         guard let s = w.controlledSkater(t) else { return }
         if s.stunTimer > 0 { w.shotCharge[t] = 0; return }
-        if input.deke { startDeke(s) }
+        if input.deke { startDeke(s, sign: input.dekeSign) }
         let hasPuck = w.puck.carrier === s
         if hasPuck {
             w.shotCharge[t] = input.shootHeld ? input.shootCharge : 0
@@ -484,7 +596,7 @@ final class Simulation {
             }
         } else {
             w.shotCharge[t] = 0
-            if s.isGoalie {
+            if s.actsAsGoalie(w) {
                 // Active Goalie Save Controls!
                 if input.shootRelease && s.goalieActionTimer <= 0 {
                     s.goalieAction = .butterfly
@@ -545,13 +657,13 @@ final class Simulation {
         w.events.append(.shot)
     }
 
-    func startDeke(_ s: Skater) {
+    func startDeke(_ s: Skater, sign: Float = 0) {
         if s.actionCooldown > 0 || s.stunTimer > 0 || s.dekeTimer > 0 { return }
         s.dekeTimer = 0.38
         s.actionCooldown = 0.65
         let perpX = -sin(s.facing)
         let perpY = cos(s.facing)
-        s.dekeDir = rng.nextBool() ? 1 : -1
+        s.dekeDir = sign > 0 ? 1 : (sign < 0 ? -1 : (rng.nextBool() ? 1 : -1))
         let sp: Float = 14
         s.vx += perpX * s.dekeDir * sp
         s.vy += perpY * s.dekeDir * sp
@@ -582,7 +694,7 @@ final class Simulation {
         var best: Skater?
         var bestScore = Float.greatestFiniteMagnitude
         for m in team.skaters {
-            if m === s || m.isGoalie || m.inPenaltyBox || m.stunTimer > 0 { continue }
+            if m === s || m.actsAsGoalie(w) || m.inPenaltyBox || m.stunTimer > 0 { continue }
             let dx = m.x - s.x
             let dy = m.y - s.y
             let d = hypot(dx, dy)
@@ -600,6 +712,22 @@ final class Simulation {
             if score < bestScore { bestScore = score; best = m }
         }
         guard let target = best else { return false }
+        launchPass(s, target, accuracy: accuracy, human: human)
+        return true
+    }
+
+    /// Passes straight to [target] (no receiver re-selection). False if the lane is blocked or the target is unusable.
+    @discardableResult
+    func passTo(_ s: Skater, target: Skater, accuracy: Float, human: Bool, checkLane: Bool) -> Bool {
+        if world.puck.carrier !== s || target === s || target.actsAsGoalie(world) || target.stunTimer > 0 || target.inPenaltyBox { return false }
+        if hypot(target.x - s.x, target.y - s.y) < 3 { return false }
+        if checkLane && laneBlocked(s, target) { return false }
+        launchPass(s, target, accuracy: accuracy, human: human)
+        return true
+    }
+
+    private func launchPass(_ s: Skater, _ target: Skater, accuracy: Float, human: Bool) {
+        let w = world
         let d = hypot(target.x - s.x, target.y - s.y)
         let speed = min(max(38 + d * 0.9, 42), 78)
         let tt = d / speed
@@ -622,7 +750,6 @@ final class Simulation {
             w.controlled[s.team] = target.index
             w.switchLock[s.team] = 0.8
         }
-        return true
     }
 
     private func laneBlocked(_ from: Skater, _ to: Skater) -> Bool {
@@ -632,6 +759,7 @@ final class Simulation {
         let len2 = dx * dx + dy * dy
         if len2 < 0.01 { return false }
         for o in opp.skaters {
+            if o.inPenaltyBox { continue }
             let t = ((o.x - from.x) * dx + (o.y - from.y) * dy) / len2
             if t <= 0.05 || t >= 0.95 { continue }
             let cx = from.x + dx * t
@@ -654,7 +782,7 @@ final class Simulation {
         if victim == nil {
             var bestD: Float = 9
             for o in world.opponent(s.team).skaters {
-                if o.isGoalie || o.inPenaltyBox { continue }
+                if o.actsAsGoalie(world) || o.inPenaltyBox { continue }
                 let d = s.distanceTo(o.x, o.y)
                 let bonus: Float = world.puck.carrier === o ? 3 : 0
                 if d - bonus < bestD { bestD = d - bonus; victim = o }
@@ -681,13 +809,13 @@ final class Simulation {
     private func handleContact(_ a: Skater, _ b: Skater, _ closing: Float) {
         if a.team == b.team { return }
         let checker: Skater?
-        if a.checkTimer > 0 && !a.isGoalie { checker = a }
-        else if b.checkTimer > 0 && !b.isGoalie { checker = b }
+        if a.checkTimer > 0 && !a.actsAsGoalie(world) { checker = a }
+        else if b.checkTimer > 0 && !b.actsAsGoalie(world) { checker = b }
         else { checker = nil }
 
         if let checker = checker {
             let victim = checker === a ? b : a
-            if victim.isGoalie || victim.stunTimer > 0 { return }
+            if victim.actsAsGoalie(world) || victim.stunTimer > 0 { return }
 
             if victim.dekeTimer > 0 {
                 // Juked! Evaded the hit cleanly
@@ -734,7 +862,7 @@ final class Simulation {
             return
         }
 
-        if closing > 20 && !a.isGoalie && !b.isGoalie {
+        if closing > 20 && !a.actsAsGoalie(world) && !b.actsAsGoalie(world) {
             let fast = a.speed >= b.speed ? a : b
             let slow = fast === a ? b : a
             if slow.stunTimer <= 0 && rng.nextFloat() < 0.5 {
@@ -780,6 +908,8 @@ final class Simulation {
             w.controlled[s.team] = s.index
         }
         w.events.append(.pickup)
+        // An offside attacker touching the puck stops play.
+        if w.offsidesEnabled && !w.isShootout && w.phase == .play && offsideMark[s.team * 6 + s.index] { callOffside(w.team(s.team), s) }
     }
 
     /// Opponents try to strip the puck from [carrier] with pokes, stick contact or body contact.
@@ -787,8 +917,8 @@ final class Simulation {
         let w = world
         let p = w.puck
         for o in w.opponent(carrier.team).skaters {
-            if o.stunTimer > 0 { continue }
-            if o.isGoalie {
+            if o.stunTimer > 0 || o.inPenaltyBox { continue }
+            if o.actsAsGoalie(w) {
                 if hypot(o.x - p.x, o.y - p.y) < o.radius + Rink.PUCK_R + 0.3 {
                     loosePuck(carrier, vx: o.vx * 0.5 + (p.x - o.x) * 3, vy: o.vy * 0.5 + (p.y - o.y) * 3, cooldown: 0.4)
                     return
@@ -897,7 +1027,7 @@ final class Simulation {
         var bestD = Float.greatestFiniteMagnitude
         for s in w.allSkaters {
             let isShootoutShooterGoalie = w.isShootout && s.team == w.shootoutTurn && s.index == w.shootoutShooterIndex[w.shootoutTurn]
-            if (s.isGoalie && !isShootoutShooterGoalie) || s.stunTimer > 0 || s.pickupCooldown > 0 || s.inPenaltyBox { continue }
+            if (s.actsAsGoalie(w) && !isShootoutShooterGoalie) || s.stunTimer > 0 || s.pickupCooldown > 0 || s.inPenaltyBox { continue }
             let bladeD = hypot(s.bladeX() - p.x, s.bladeY() - p.y)
             let bodyD = hypot(s.x - p.x, s.y - p.y) - s.radius + 0.5
             let d = min(bladeD, bodyD)
@@ -964,7 +1094,7 @@ final class Simulation {
         offender.place(0, boxY, 0)
 
         if w.controlled[offender.team] == offender.index {
-            let next = w.teams[offender.team].skaters.first { !$0.isGoalie && !$0.inPenaltyBox }
+            let next = w.teams[offender.team].skaters.first { !$0.actsAsGoalie(w) && !$0.inPenaltyBox }
             if let next = next { w.controlled[offender.team] = next.index }
         }
 
@@ -978,7 +1108,7 @@ final class Simulation {
         startWhistle(fx, fy)
     }
 
-    func releasePenalty() {
+    func releasePenalty(quiet: Bool = false) {
         let w = world
         let t = w.penaltyTeam
         let idx = w.penaltyPlayerIndex
@@ -990,11 +1120,12 @@ final class Simulation {
         w.penaltyTeam = -1
         w.penaltyTimer = 0
         w.penaltyPlayerIndex = -1
-        w.showBanner("FULL STRENGTH", nil, 1.5)
+        if !quiet { w.showBanner("FULL STRENGTH", nil, 1.5) }
     }
 
     func togglePullGoalie(_ teamId: Int) -> Bool {
         let w = world
+        if w.isShootout || w.phase != .play { return w.goaliePulled[teamId] }
         w.goaliePulled[teamId] = !w.goaliePulled[teamId]
         let pulled = w.goaliePulled[teamId]
         let team = w.team(teamId)

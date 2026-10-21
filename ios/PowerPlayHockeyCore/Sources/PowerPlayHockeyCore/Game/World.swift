@@ -1,13 +1,13 @@
 import Foundation
 
 enum Phase {
-    case faceoff, play, whistle, goal, periodEnd, gameOver
+    case faceoff, play, whistle, goal, periodEnd, gameOver, anthem   // anthem is last: ordinals go over the network
 }
 
 /// One-shot things that happened this tick; the view turns them into sounds / effects.
 enum GameEvent {
     case shot, pass, boards, post, goal, hit, poke, save, whistle, horn, faceoffDrop, pickup, periodEnd, gameOver, faceoffSet
-    case oneTimer, penalty, onFire, deke, glassShatter, goalieSaveMove, icing
+    case oneTimer, penalty, onFire, deke, glassShatter, goalieSaveMove, icing, offside   // offside is last: ordinals go over the network
 }
 
 /// Per-frame command state from a human controller (touch or network).
@@ -20,6 +20,8 @@ final class PlayerInput {
     var pass: Bool = false
     var hit: Bool = false
     var deke: Bool = false
+    /// Flick direction hint for a deke: +1 / -1 lateral side, 0 = host picks randomly.
+    var dekeSign: Float = 0
 
     var moveMagnitude: Float { hypot(moveX, moveY) }
 
@@ -29,12 +31,13 @@ final class PlayerInput {
         pass = false
         hit = false
         deke = false
+        dekeSign = 0
     }
 
     func copyFrom(_ o: PlayerInput) {
         moveX = o.moveX; moveY = o.moveY
         shootHeld = o.shootHeld; shootRelease = o.shootRelease; shootCharge = o.shootCharge
-        pass = o.pass; hit = o.hit; deke = o.deke
+        pass = o.pass; hit = o.hit; deke = o.deke; dekeSign = o.dekeSign
     }
 }
 
@@ -126,6 +129,8 @@ final class World {
     let teams: [Team]
     let puck = Puck()
     let periodLength: Int
+    /// Offside rule on/off (host side only; a match option, off by default).
+    var offsidesEnabled: Bool = false
 
     var period = 1
     var clock: Float

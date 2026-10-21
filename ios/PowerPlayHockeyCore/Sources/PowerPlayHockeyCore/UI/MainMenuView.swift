@@ -182,7 +182,7 @@ private struct HowToPlaySheet: View {
                             ("Virtual Joystick", "Left side of screen: skate and aim shots/passes"),
                             ("SHOOT (Hold & Release)", "Charge up a rocket wrist shot or clapper"),
                             ("PASS", "Tap to pass to open teammate in stick direction"),
-                            ("RAPID FLICK DEKE", "Flick joystick sharply to dodge checks and freeze goalie"),
+                            ("FLICK TO DEKE", "With the puck, flick the stick quickly. It dodges sideways past a defender"),
                             ("ONE-TIMER", "Tap or hold SHOOT as a pass arrives for a 115+ mph blast")
                         ])
 
@@ -191,14 +191,19 @@ private struct HowToPlaySheet: View {
                             ("BODY CHECK (Hit button)", "Lunge forward to flatten the puck carrier"),
                             ("BUTTERFLY DROP (Goalie)", "Drop down to seal five-hole along ice"),
                             ("TWO-PAD STACK (Goalie)", "Dive sideways with pads stacked to rob breakaways"),
-                            ("SWITCH DEFENDER", "Tap PASS without puck to switch to closest skater")
+                            ("SWITCH DEFENDER", "Tap PASS without puck to switch to closest skater"),
+                            ("GREEN RING", "The green ring and arrow mark the skater you control"),
+                            ("PULL GOALIE", "Tap the PULL GOALIE pill (top right) for an extra attacker")
                         ])
 
                         guideSection(title: "GAME MODES & ARENAS", icon: "star.fill", items: [
                             ("Outdoor Winter Pond", "Alpine forest, falling snow, teal lake ice & breath vapor"),
                             ("Shootout Showdown", "5 rounds of 1-on-1 breakaways with active shot clock"),
                             ("On Fire Momentum", "String 3 good plays together for 25s speed and shot surge"),
-                            ("Shattered Glass", "Crush opponents into the boards at high speed to explode plexiglass")
+                            ("Shattered Glass", "Crush opponents into the boards at high speed to explode plexiglass"),
+                            ("Offside", "Optional in Match Setup (off by default). Do not skate past the far blue line ahead of the puck, or play is stopped"),
+                            ("Leagues", "Pick CALGARY TIMBITS, NHL or GTHL clubs in Match Setup; Tournament uses that league"),
+                            ("National Anthem", "A short anthem plays before the opening faceoff; tap to skip it, or turn it off in Match Setup")
                         ])
                     }
                     .padding(24)

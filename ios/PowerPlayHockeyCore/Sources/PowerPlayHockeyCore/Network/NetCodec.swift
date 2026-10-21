@@ -16,11 +16,11 @@ public enum NetCodec {
     private static let F_BUTTERFLY = 8
     private static let F_SWING = 16
 
-    private static let allPhases: [Phase] = [.faceoff, .play, .whistle, .goal, .periodEnd, .gameOver]
+    private static let allPhases: [Phase] = [.faceoff, .play, .whistle, .goal, .periodEnd, .gameOver, .anthem]
     private static let allEvents: [GameEvent] = [
         .shot, .pass, .boards, .post, .goal, .hit, .poke, .save, .whistle, .horn,
         .faceoffDrop, .pickup, .periodEnd, .gameOver, .faceoffSet, .oneTimer,
-        .penalty, .onFire, .deke, .glassShatter, .goalieSaveMove, .icing
+        .penalty, .onFire, .deke, .glassShatter, .goalieSaveMove, .icing, .offside
     ]
 
     public static func configJson(home: Int, away: Int, periodLength: Int) -> String {
@@ -34,7 +34,7 @@ public enum NetCodec {
     }
 
     public static func inputJson(_ i: PlayerInput) -> String {
-        let dict: [String: Any] = [
+        var dict: [String: Any] = [
             "t": "in",
             "mx": Double(i.moveX),
             "my": Double(i.moveY),
@@ -45,6 +45,7 @@ public enum NetCodec {
             "ht": i.hit,
             "dk": i.deke
         ]
+        if i.deke && i.dekeSign != 0 { dict["dd"] = Double(i.dekeSign) }
         return serialize(dict)
     }
 
@@ -60,7 +61,10 @@ public enum NetCodec {
         }
         if obj["ps"] as? Bool ?? false { dst.pass = true }
         if obj["ht"] as? Bool ?? false { dst.hit = true }
-        if obj["dk"] as? Bool ?? false { dst.deke = true }
+        if obj["dk"] as? Bool ?? false {
+            dst.deke = true
+            dst.dekeSign = Float(obj["dd"] as? Double ?? 0.0)
+        }
     }
 
     public static func stateJson(_ w: World) -> String {

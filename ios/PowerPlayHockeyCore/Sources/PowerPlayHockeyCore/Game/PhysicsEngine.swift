@@ -8,6 +8,8 @@ enum PhysicsEngine {
     private static let BOARD_RESTITUTION: Float = 0.62
     private static let POST_RESTITUTION: Float = 0.8
     private static let MAX_PUCK_SPEED: Float = 130
+    private static let SIDES: [Float] = [-1, 1]
+    private static let POST_YS: [Float] = [-Rink.GOAL_HALF_W, Rink.GOAL_HALF_W]
 
     /// Accelerates [s] toward the desired velocity and integrates. Facing turns
     /// toward the direction of travel while moving.
@@ -58,8 +60,8 @@ enum PhysicsEngine {
                 s.vy -= dot * ny
             }
         }
-        if !s.isGoalie {
-            for e: Float in [-1, 1] {
+        if !s.isGoalie || s.pulled {
+            for e in SIDES {
                 let left = Rink.GOAL_LINE_X - 0.3
                 let right = Rink.GOAL_LINE_X + Rink.NET_DEPTH + 0.3
                 let ax = s.x * e
@@ -144,10 +146,10 @@ enum PhysicsEngine {
 
         let r = Rink.PUCK_R
         let backX = Rink.GOAL_LINE_X + Rink.NET_DEPTH
-        for e: Float in [-1, 1] {
+        for e in SIDES {
             let gx = e * Rink.GOAL_LINE_X
             // Posts.
-            for py: Float in [-Rink.GOAL_HALF_W, Rink.GOAL_HALF_W] {
+            for py in POST_YS {
                 let dx = puck.x - gx
                 let dy = puck.y - py
                 let d = hypot(dx, dy)
@@ -265,7 +267,7 @@ enum PhysicsEngine {
     private static func keepCarriedPuckOutOfNets(_ puck: Puck, _ s: Skater) {
         let r = Rink.PUCK_R
         let backX = Rink.GOAL_LINE_X + Rink.NET_DEPTH
-        for e: Float in [-1, 1] {
+        for e in SIDES {
             let ax = puck.x * e
             if ax <= Rink.GOAL_LINE_X - r || ax >= backX + r || abs(puck.y) >= Rink.NET_HALF_W + r { continue }
             let sax = s.x * e

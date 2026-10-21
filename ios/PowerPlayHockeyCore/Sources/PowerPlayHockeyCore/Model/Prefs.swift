@@ -28,6 +28,36 @@ enum Prefs {
 
     static func soundEnabled() -> Bool { sfxVolume() > 0 }
     private static let keyArena = "arena_type"
+    private static let keyLeague = "league"
+    private static let keyAnthem = "anthem"
+    private static let keyOffsides = "offsides"
+
+    /// Offside rule (default off, arcade-style). Read when a match starts.
+    static func offsideEnabled() -> Bool {
+        UserDefaults.standard.object(forKey: keyOffsides) as? Bool ?? false
+    }
+
+    static func setOffsideEnabled(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: keyOffsides)
+    }
+
+    /// Which club group the team pickers show: TeamInfo.LEAGUE_CALGARY (Timbits), LEAGUE_NHL or LEAGUE_GTHL.
+    static func league() -> String {
+        TeamInfo.normalizeLeague(UserDefaults.standard.string(forKey: keyLeague) ?? TeamInfo.LEAGUE_CALGARY)
+    }
+
+    static func setLeague(_ league: String) {
+        UserDefaults.standard.set(league, forKey: keyLeague)
+    }
+
+    /// Play the national anthem as a pre-game ceremony (default on).
+    static func anthemEnabled() -> Bool {
+        UserDefaults.standard.object(forKey: keyAnthem) as? Bool ?? true
+    }
+
+    static func setAnthemEnabled(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: keyAnthem)
+    }
     private static let keyTournament = "tournament_state"
 
     static func arenaType() -> ArenaType {

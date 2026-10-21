@@ -14,6 +14,8 @@ public struct TournamentView: View {
     public init(onPlayMatch: @escaping (MatchConfig) -> Void, onBack: @escaping () -> Void) {
         self.onPlayMatch = onPlayMatch
         self.onBack = onBack
+        // The club list (and so the whole bracket) follows the league chosen in Match Setup.
+        self._selectedTeamIdx = State(initialValue: TeamInfo.indicesFor(Prefs.league()).first ?? TeamInfo.DEFAULT_HOME)
     }
 
     public var body: some View {
@@ -127,6 +129,10 @@ public struct TournamentView: View {
                             .font(.system(size: 18, weight: .black, design: .rounded))
                             .foregroundColor(.white)
 
+                        Text("Clubs follow the league chosen in Match Setup")
+                            .font(.system(size: 12, weight: .regular))
+                            .foregroundColor(.gray)
+
                         let team = TeamInfo.byIndex(selectedTeamIdx)
                         VStack(spacing: 10) {
                             Circle()
@@ -149,7 +155,9 @@ public struct TournamentView: View {
                             HStack(spacing: 32) {
                                 Button(action: {
                                     SoundManager.shared.playClick()
-                                    selectedTeamIdx = (selectedTeamIdx - 1 + TeamInfo.ALL.count) % TeamInfo.ALL.count
+                                    let clubs = TeamInfo.indicesFor(Prefs.league())
+                                    let pos = clubs.firstIndex(of: selectedTeamIdx) ?? 0
+                                    selectedTeamIdx = clubs[(pos - 1 + clubs.count) % clubs.count]
                                 }) {
                                     Image(systemName: "chevron.left.circle.fill")
                                         .font(.system(size: 32))
@@ -158,7 +166,9 @@ public struct TournamentView: View {
 
                                 Button(action: {
                                     SoundManager.shared.playClick()
-                                    selectedTeamIdx = (selectedTeamIdx + 1) % TeamInfo.ALL.count
+                                    let clubs = TeamInfo.indicesFor(Prefs.league())
+                                    let pos = clubs.firstIndex(of: selectedTeamIdx) ?? 0
+                                    selectedTeamIdx = clubs[(pos + 1) % clubs.count]
                                 }) {
                                     Image(systemName: "chevron.right.circle.fill")
                                         .font(.system(size: 32))

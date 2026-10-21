@@ -16,6 +16,9 @@ public struct MatchSettingsView: View {
     @State private var arena: ArenaType = .indoor
     @State private var sfxVol: Double = Double(Prefs.sfxVolume())
     @State private var musicVol: Double = Double(Prefs.musicVolume())
+    @State private var league: String = Prefs.league()
+    @State private var anthemOn: Bool = Prefs.anthemEnabled()
+    @State private var offsideOn: Bool = Prefs.offsideEnabled()
 
     public init(
         defaultMode: GameMode = .singlePlayer,
@@ -24,6 +27,10 @@ public struct MatchSettingsView: View {
     ) {
         self.defaultMode = defaultMode
         self._selectedMode = State(initialValue: defaultMode)
+        // Start from the saved league; the two pickers begin on its first two clubs.
+        let leagueClubs = TeamInfo.indicesFor(Prefs.league())
+        self._homeTeamIndex = State(initialValue: leagueClubs.first ?? TeamInfo.DEFAULT_HOME)
+        self._awayTeamIndex = State(initialValue: leagueClubs.count > 1 ? leagueClubs[1] : TeamInfo.DEFAULT_AWAY)
         self.onStartGame = onStartGame
         self.onBack = onBack
     }
@@ -68,6 +75,22 @@ public struct MatchSettingsView: View {
 
                 ScrollView {
                     VStack(spacing: 20) {
+                        // League selector: repopulates both team pickers
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("LEAGUE")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(Color.gray)
+
+                            HStack(spacing: 12) {
+                                leagueButton(id: TeamInfo.LEAGUE_CALGARY, label: "CALGARY TIMBITS")
+                                leagueButton(id: TeamInfo.LEAGUE_NHL, label: "NHL")
+                                leagueButton(id: TeamInfo.LEAGUE_GTHL, label: "GTHL")
+                            }
+                        }
+                        .padding(16)
+                        .background(Color.white.opacity(0.06))
+                        .cornerRadius(14)
+
                         // Team Selectors
                         HStack(spacing: 16) {
                             teamCard(title: "YOUR TEAM", teamIndex: $homeTeamIndex)
@@ -130,6 +153,24 @@ public struct MatchSettingsView: View {
                                 .font(.system(size: 14, weight: .bold))
                                 .foregroundColor(Color.gray)
 
+                            Toggle(isOn: $anthemOn) {
+                                Text("Play national anthem before the game")
+                                    .foregroundColor(.white)
+                            }
+                            .toggleStyle(SwitchToggleStyle(tint: .blue))
+                            .onChange(of: anthemOn) { newValue in
+                                Prefs.setAnthemEnabled(newValue)
+                            }
+
+                            Toggle(isOn: $offsideOn) {
+                                Text("Offsides (stop play if ahead of the puck)")
+                                    .foregroundColor(.white)
+                            }
+                            .toggleStyle(SwitchToggleStyle(tint: .blue))
+                            .onChange(of: offsideOn) { newValue in
+                                Prefs.setOffsideEnabled(newValue)
+                            }
+
                             HStack {
                                 Image(systemName: "speaker.wave.3.fill")
                                     .foregroundColor(.white)
@@ -168,10 +209,17 @@ public struct MatchSettingsView: View {
                         Button(action: {
                             SoundManager.shared.playClick()
                             Prefs.setArenaType(arena)
+                            // Two different clubs, both from the chosen league.
+                            let leagueClubs = TeamInfo.indicesFor(league)
+                            var awayPick = awayTeamIndex
+                            if awayPick == homeTeamIndex {
+                                let pos = leagueClubs.firstIndex(of: awayPick) ?? 0
+                                awayPick = leagueClubs[(pos + 1) % leagueClubs.count]
+                            }
                             let config = MatchConfig(
                                 mode: selectedMode,
                                 homeTeam: homeTeamIndex,
-                                awayTeam: awayTeamIndex,
+                                awayTeam: awayPick,
                                 periodLengthSeconds: periodLength,
                                 aiDifficulty: difficulty,
                                 soundEnabled: sfxVol > 0,
@@ -231,7 +279,9 @@ public struct MatchSettingsView: View {
             HStack {
                 Button(action: {
                     SoundManager.shared.playClick()
-                    teamIndex.wrappedValue = (teamIndex.wrappedValue - 1 + TeamInfo.ALL.count) % TeamInfo.ALL.count
+                    let clubs = TeamInfo.indicesFor(league)
+                    let pos = clubs.firstIndex(of: teamIndex.wrappedValue) ?? 0
+                    teamIndex.wrappedValue = clubs[(pos - 1 + clubs.count) % clubs.count]
                 }) {
                     Image(systemName: "chevron.left.circle.fill")
                         .font(.system(size: 22))
@@ -242,7 +292,9 @@ public struct MatchSettingsView: View {
 
                 Button(action: {
                     SoundManager.shared.playClick()
-                    teamIndex.wrappedValue = (teamIndex.wrappedValue + 1) % TeamInfo.ALL.count
+                    let clubs = TeamInfo.indicesFor(league)
+                    let pos = clubs.firstIndex(of: teamIndex.wrappedValue) ?? 0
+                    teamIndex.wrappedValue = clubs[(pos + 1) % clubs.count]
                 }) {
                     Image(systemName: "chevron.right.circle.fill")
                         .font(.system(size: 22))
@@ -256,6 +308,26 @@ public struct MatchSettingsView: View {
         .frame(maxWidth: .infinity)
         .background(Color.white.opacity(0.06))
         .cornerRadius(14)
+    }
+
+    private func leagueButton(id: String, label: String) -> some View {
+        let isSelected = league == id
+        return Button(action: {
+            SoundManager.shared.playClick()
+            league = id
+            Prefs.setLeague(id)
+            let clubs = TeamInfo.indicesFor(id)
+            homeTeamIndex = clubs[0]
+            awayTeamIndex = clubs.count > 1 ? clubs[1] : clubs[0]
+        }) {
+            Text(label)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundColor(isSelected ? .white : .gray)
+                .frame(maxWidth: .infinity)
+                .frame(height: 42)
+                .background(isSelected ? Color.blue : Color.white.opacity(0.08))
+                .cornerRadius(10)
+        }
     }
 
     private func arenaButton(type: ArenaType, label: String, icon: String) -> some View {

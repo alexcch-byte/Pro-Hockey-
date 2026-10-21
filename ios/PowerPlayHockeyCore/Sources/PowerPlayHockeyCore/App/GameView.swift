@@ -25,17 +25,26 @@ public final class GameView: UIView {
     private var isGamePaused = false
     private var localTeamIndex = 0
 
-    public init(frame: CGRect, config: MatchConfig = .makeDefault()) {
+    /// The pre-game anthem ceremony (audio + caption + tap to skip) is implemented.
+    static let ANTHEM_READY = true
+
+    private var anthemWanted = false
+    private var anthemPlaying = false
+
+    /// `allowAnthem` is false for restarts / rematches from the pause or game-over menus (fresh match starts only).
+    public init(frame: CGRect, config: MatchConfig = .makeDefault(), allowAnthem: Bool = true) {
         self.config = config
         let screenScale = Float(UIScreen.main.scale)
         self.controls = TouchControls(density: screenScale)
         self.renderer = Renderer(density: screenScale)
 
-        let homeInfo = TeamInfo.byIndex(config.homeTeam)
-        let awayInfo = TeamInfo.byIndex(config.awayTeam)
+        let kits = TeamInfo.matchTeams(config.homeTeam, config.awayTeam)   // home/away kits, road-kit fallback on a clash (same on host and guest)
+        let homeInfo = kits.home
+        let awayInfo = kits.away
         self.world = World(homeInfo: homeInfo, awayInfo: awayInfo, periodLength: config.periodLengthSeconds)
         self.world.arenaType = config.arenaType
         self.world.isShootout = (config.mode == .shootout)
+        self.world.offsidesEnabled = (config.mode != .shootout) && Prefs.offsideEnabled()
 
         let aiSettings = AiSettings.forDifficulty(config.aiDifficulty)
         self.simulation = Simulation(world: world, ai: aiSettings)
@@ -45,9 +54,26 @@ public final class GameView: UIView {
         self.isMultipleTouchEnabled = true
         self.backgroundColor = UIColor(red: 11/255.0, green: 20/255.0, blue: 36/255.0, alpha: 1.0)
 
-        SoundManager.shared.startCrowd()
+        renderer.pullPillEnabled = config.mode != .wifiClient
+        renderer.guest = config.mode == .wifiClient
         MusicManager.shared.play("music_game", volume: MusicManager.gameVolume)
-        simulation.start()
+        // Pre-game anthem ceremony: fresh match starts only (tournament: first game of the series), never in a
+        // shootout, only when the setting is on and the music is audible.
+        let wantAnthem = GameView.ANTHEM_READY && allowAnthem && Prefs.anthemEnabled() && Prefs.musicVolume() > 0
+            && config.mode != .shootout
+            && (!config.isTournament || (Prefs.getTournament()?.currentRound ?? 0) == 0)
+        anthemWanted = wantAnthem
+        simulation.start(anthem: wantAnthem)
+        if wantAnthem {
+            // Start the anthem right away (the loop is muted while it plays); the crowd bed starts after the ceremony.
+            anthemPlaying = true
+            if !MusicManager.shared.playAnthem() {
+                // No audio to wait for: do not hold the players for 28 silent seconds.
+                world.phaseTimer = min(world.phaseTimer, 2)
+            }
+        } else {
+            SoundManager.shared.startCrowd()
+        }
     }
 
     required init?(coder: NSCoder) {
@@ -73,6 +99,23 @@ public final class GameView: UIView {
         controls.layout(w, h)
     }
 
+    /// Starts the anthem audio when the pre-game ceremony begins and fades it out when the phase ends.
+    private func updateAnthem() {
+        if world.phase == .anthem {
+            if !anthemPlaying {
+                anthemPlaying = true
+                if anthemWanted && !MusicManager.shared.playAnthem() {
+                    // No audio to wait for: do not hold the players for 28 silent seconds.
+                    world.phaseTimer = min(world.phaseTimer, 2)
+                }
+            }
+        } else if anthemPlaying {
+            anthemPlaying = false
+            MusicManager.shared.stopAnthem()
+            SoundManager.shared.startCrowd()
+        }
+    }
+
     // ------------------------------------------------------------- Loop
 
     public func setPaused(_ paused: Bool) {
@@ -82,7 +125,7 @@ public final class GameView: UIView {
             MusicManager.shared.pause()
         } else {
             lastTimestamp = 0
-            SoundManager.shared.startCrowd()
+            if world.phase != .anthem { SoundManager.shared.startCrowd() }
             MusicManager.shared.resume()
         }
     }
@@ -128,6 +171,7 @@ public final class GameView: UIView {
 
         // Run simulation step
         simulation.step(dt: dt, inputs: inputs)
+        updateAnthem()
 
         // Audio and haptic dispatch & achievements
         for event in world.events {
@@ -189,6 +233,19 @@ public final class GameView: UIView {
             if renderer.isPauseHit(p.x, p.y) {
                 SoundManager.shared.playClick()
                 onPause?()
+                return
+            }
+            // Tap anywhere skips the pre-game anthem ceremony.
+            if world.phase == .anthem {
+                simulation.skipAnthem()
+                MusicManager.shared.stopAnthem()
+                return
+            }
+            // PULL GOALIE pill: toggles the extra attacker (sound only if the state actually changed).
+            if renderer.isPullHit(p.x, p.y, world, localTeamIndex) {
+                let before = world.goaliePulled[localTeamIndex]
+                let after = simulation.togglePullGoalie(localTeamIndex)
+                if after != before { SoundManager.shared.playToggle() }
                 return
             }
             // Shootout change shooter hit test
