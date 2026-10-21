@@ -96,8 +96,13 @@ class GameView @JvmOverloads constructor(
         networkClient = client
         configured = true
         localTeam = if (config.mode == GameMode.WIFI_CLIENT) 1 else 0
+        // The view is a purely local choice (saved preference), read once when the match starts.
+        val viewMode = com.tablehockey.game.model.Prefs.viewMode(context)
+        renderer.setViewMode(viewMode)
+        controls.longView = viewMode == ViewMode.LONG
         renderer.pullPillEnabled = config.mode != GameMode.WIFI_CLIENT
         renderer.guest = config.mode == GameMode.WIFI_CLIENT
+        renderer.camera.useWorldVelocity = config.mode != GameMode.WIFI_CLIENT
 
         if (config.mode != GameMode.WIFI_CLIENT) {
             createWorld(config.homeTeam, config.awayTeam, config.periodLengthSeconds)
@@ -409,9 +414,7 @@ class GameView @JvmOverloads constructor(
         val tc = System.nanoTime()
         if (tc - ta > 15_000_000L) android.util.Log.d("PowerPlay", String.format("SLOWUPD host %.1f (sim %.1f ev %.1f) ambience %.1f", (tb - ta) / 1e6, dbgSim / 1e6, dbgEv / 1e6, (tc - tb) / 1e6))
         // Camera follows the puck (leading slightly into its travel).
-        val p = w.puck
-        val lead = if (p.carrier == null) 0.18f else 0.1f
-        renderer.camera.follow(p.x + p.vx * lead, p.y * 0.85f + p.vy * lead * 0.5f, dt)
+        renderer.camera.track(w, dt)
     }
 
     /** Starts the anthem audio when the pre-game ceremony begins and fades it out when the phase ends. */
@@ -472,11 +475,46 @@ if (anthem) {
         checkMatchOver(w)
     }
 
+    /**
+     * Guest-side prediction: the guest's own skater moves immediately from the local joystick instead
+     * of waiting a full round trip to the host. The host stays authoritative; see [predictLocal].
+     */
+    private fun predictedSkater(w: World): Skater? {
+        if (w.phase != Phase.PLAY || w.isShootout) return null
+        val ci = w.controlled[1]
+        if (ci < 0 || ci >= w.teams[1].skaters.size) return null
+        val s = w.teams[1].skaters[ci]
+        return if (s.isGoalie || s.inPenaltyBox) null else s
+    }
+
+    private fun predictLocal(s: Skater, dt: Float) {
+        var mx = localInput.moveX
+        var my = localInput.moveY
+        val mag = kotlin.math.hypot(mx, my)
+        if (mag > 1f) { mx /= mag; my /= mag }
+        PhysicsEngine.moveSkater(s, mx * Skater.MAX_SPEED, my * Skater.MAX_SPEED, Skater.MAX_SPEED, dt)
+        PhysicsEngine.constrainSkater(s)
+        // Reconcile with the host: tolerate a lead of about one round trip of travel, pull back beyond it, snap if far off.
+        val ex = s.netX - s.x
+        val ey = s.netY - s.y
+        val e = kotlin.math.hypot(ex, ey)
+        if (e > PREDICT_SNAP_FT) {
+            s.x = s.netX; s.y = s.netY; s.vx = 0f; s.vy = 0f
+        } else if (e > PREDICT_DEADZONE_FT) {
+            val pull = (e - PREDICT_DEADZONE_FT) * (1f - exp(-dt * 3f)) / e
+            s.x += ex * pull
+            s.y += ey * pull
+        }
+    }
+
     private fun updateClient(w: World, dt: Float) {
         synchronized(w) {
             // Interpolate toward the latest snapshot; derive velocities from the motion.
             val k = 1f - exp(-dt * 18f)
+            val me = predictedSkater(w)
+            if (me != null) predictLocal(me, dt)
             for (s in w.allSkaters) {
+                if (s === me) continue
                 val ox = s.x
                 val oy = s.y
                 s.x += (s.netX - s.x) * k
@@ -489,6 +527,11 @@ if (anthem) {
             val p = w.puck
             p.x += (p.netX - p.x) * k
             p.y += (p.netY - p.y) * k
+            if (me != null && p.carrier === me) {
+                // Keep a carried puck on the stick of the (locally predicted) skater.
+                p.x = me.x + (p.netX - me.netX)
+                p.y = me.y + (p.netY - me.netY)
+            }
             if (w.bannerTimer > 0f) {
                 w.bannerTimer = max(0f, w.bannerTimer - dt)
                 if (w.bannerTimer <= 0f) { w.banner = null; w.bannerSub = null }
@@ -609,7 +652,7 @@ if (anthem) {
                 skateTimer -= dt
                 if (skateTimer <= 0f) {
                     val intensity = (speed / Skater.MAX_SPEED).coerceIn(0f, 1f)
-                    sm.playSkate(intensity, s.x)
+                    sm.playSkate(intensity, if (renderer.camera.long) s.y else s.x)
                     skateTimer = 0.44f - 0.14f * intensity
                 }
             } else {
@@ -656,3 +699,7 @@ if (anthem) {
         }
     }
 }
+
+/** Guest prediction: allowed lead over the last host snapshot (about one round trip at top speed) and the error that forces a snap. */
+private const val PREDICT_DEADZONE_FT = 5f
+private const val PREDICT_SNAP_FT = 14f

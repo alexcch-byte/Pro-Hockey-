@@ -28,6 +28,76 @@ import java.util.concurrent.atomic.AtomicBoolean
 val HOCKEY_BT_UUID: UUID = UUID.fromString("7a4b1c2e-9d3f-4b6a-8e21-5c0f2d9a7b31")
 const val BT_SERVICE_NAME = "PowerPlayHockey"
 
+
+/**
+ * Writes outbound lines on its own thread so the game thread never blocks on a slow
+ * Bluetooth link, and sends only the freshest snapshot/input when the link falls behind.
+ * RFCOMM is an ordered stream: if stale snapshots queue up behind a stall they are all
+ * delivered in turn and the lag never recovers. A pending snapshot is therefore replaced
+ * by a newer one unless it carries sound/event data (state "ev") or a button press
+ * (input pulse), in which case it is kept and sent first.
+ */
+private class OutboundPump(
+    private val out: java.io.OutputStream,
+    name: String,
+    private val onError: () -> Unit
+) {
+    private val lock = Object()
+    private val fifo = java.util.ArrayDeque<String>()
+    private var pending: String? = null
+    @Volatile private var alive = true
+
+    init {
+        Thread({ run() }, name).apply { isDaemon = true; start() }
+    }
+
+    private fun isFresh(json: String) = json.startsWith("{\"t\":\"st\"") || json.startsWith("{\"t\":\"in\"")
+
+    private fun mustKeep(json: String) =
+        json.contains("\"ev\"") || json.contains("\"sr\":true") || json.contains("\"ps\":true") ||
+            json.contains("\"ht\":true") || json.contains("\"dk\":true")
+
+    fun send(json: String) {
+        synchronized(lock) {
+            if (isFresh(json)) {
+                pending?.let { if (mustKeep(it)) fifo.add(it) }
+                pending = json
+            } else {
+                fifo.add(json)
+            }
+            lock.notifyAll()
+        }
+    }
+
+    fun close() {
+        alive = false
+        synchronized(lock) { lock.notifyAll() }
+    }
+
+    private fun run() {
+        while (alive) {
+            var msg: String? = null
+            synchronized(lock) {
+                while (alive && fifo.isEmpty() && pending == null) {
+                    try { lock.wait() } catch (_: InterruptedException) { return }
+                }
+                if (!alive) return
+                msg = fifo.poll()
+                if (msg == null) { msg = pending; pending = null }
+            }
+            val m = msg ?: continue
+            try {
+                out.write((m + "\n").toByteArray(Charsets.UTF_8))
+                out.flush()
+            } catch (e: IOException) {
+                Log.w("OutboundPump", "write failed: ${e.message}")
+                if (alive) onError()
+                return
+            }
+        }
+    }
+}
+
 /** Helpers for adapter state and the per-OS-version permission sets. */
 object BluetoothSupport {
     private const val TAG = "BluetoothSupport"
@@ -87,7 +157,7 @@ object BluetoothSupport {
 class BluetoothHost(private val context: Context) : HostLink {
 
     override var listener: HostLink.Listener? = null
-    override val stateHz: Int = 20
+    override val stateHz: Int = 30
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val running = AtomicBoolean(false)
@@ -95,7 +165,7 @@ class BluetoothHost(private val context: Context) : HostLink {
     private var secureServerSocket: BluetoothServerSocket? = null
     private var insecureServerSocket: BluetoothServerSocket? = null
     private var socket: BluetoothSocket? = null
-    @Volatile private var writer: PrintWriter? = null
+    @Volatile private var pump: OutboundPump? = null
 
     /** Returns false when Bluetooth is off, missing, or not permitted. */
     fun start(): Boolean {
@@ -132,11 +202,14 @@ class BluetoothHost(private val context: Context) : HostLink {
             }
             Log.i(TAG, "Guest connected via $label socket")
             socket = incoming
-            writer = try { PrintWriter(incoming.outputStream, true) } catch (e: IOException) { null }
+            pump = try {
+                OutboundPump(incoming.outputStream, "BluetoothHost-Write") { try { incoming.close() } catch (_: Exception) {} }
+            } catch (e: IOException) { null }
             mainHandler.post { listener?.onClientConnected() }
             readLoop(incoming)
             mainHandler.post { listener?.onClientDisconnected() }
-            writer = null
+            pump?.close()
+            pump = null
             try { incoming.close() } catch (_: Exception) {}
             socket = null
             guestClaimed.set(false)
@@ -157,17 +230,16 @@ class BluetoothHost(private val context: Context) : HostLink {
     }
 
     override fun send(json: String) {
-        val w = writer ?: return
-        try { w.println(json) } catch (e: Exception) { Log.w(TAG, "send failed: ${e.message}") }
+        pump?.send(json)
     }
 
     override fun stop() {
         running.set(false)
-        try { writer?.close() } catch (_: Exception) {}
+        pump?.close()
         try { socket?.close() } catch (_: Exception) {}
         try { secureServerSocket?.close() } catch (_: Exception) {}
         try { insecureServerSocket?.close() } catch (_: Exception) {}
-        writer = null
+        pump = null
         socket = null
         secureServerSocket = null
         insecureServerSocket = null
@@ -183,12 +255,12 @@ class BluetoothHost(private val context: Context) : HostLink {
 class BluetoothGuest(private val context: Context) : GuestLink {
 
     override var listener: GuestLink.Listener? = null
-    override val inputHz: Int = 20
+    override val inputHz: Int = 30
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val running = AtomicBoolean(false)
     private var socket: BluetoothSocket? = null
-    @Volatile private var writer: PrintWriter? = null
+    @Volatile private var pump: OutboundPump? = null
 
     fun connect(device: BluetoothDevice) {
         running.set(true)
@@ -252,7 +324,7 @@ class BluetoothGuest(private val context: Context) : GuestLink {
             return
         }
         socket = s
-        writer = PrintWriter(s.outputStream, true)
+        pump = OutboundPump(s.outputStream, "BluetoothGuest-Write") { try { s.close() } catch (_: Exception) {} }
         mainHandler.post { listener?.onConnected() }
         readLoop(s)
     }
@@ -279,15 +351,14 @@ class BluetoothGuest(private val context: Context) : GuestLink {
     }
 
     override fun send(json: String) {
-        val w = writer ?: return
-        try { w.println(json) } catch (e: Exception) { Log.w(TAG, "send failed: ${e.message}") }
+        pump?.send(json)
     }
 
     override fun disconnect() {
         running.set(false)
-        try { writer?.close() } catch (_: Exception) {}
+        pump?.close()
         try { socket?.close() } catch (_: Exception) {}
-        writer = null
+        pump = null
         socket = null
     }
 

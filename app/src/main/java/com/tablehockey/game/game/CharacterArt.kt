@@ -32,7 +32,7 @@ import kotlin.math.sin
  * that depth) / [pxPerFt]. Nothing here is called per frame except the cheap number
  * placement helpers.
  */
-class CharacterArt(val pxPerFt: Float) {
+class CharacterArt(val pxPerFt: Float, private val vk: Float = Camera.VK) {
 
     companion object {
         const val FACINGS = 16
@@ -63,6 +63,14 @@ class CharacterArt(val pxPerFt: Float) {
             val i = Math.round(t) % FACINGS
             return if (i < 0) i + FACINGS else i
         }
+
+        /**
+         * Sprite index for a WORLD facing angle. The camera looks down the rink (world +x is screen up,
+         * world +y is screen right), so the on-screen angle is the world angle minus 90 degrees.
+         */
+        fun facingIndexWorld(worldAngle: Float): Int = facingIndex(worldAngle - HALF_PI)
+
+        private const val HALF_PI = (PI / 2.0).toFloat()
     }
 
     val width = ceil(WIDE_FT * pxPerFt).toInt()
@@ -102,7 +110,7 @@ class CharacterArt(val pxPerFt: Float) {
 
     private fun sx(lx: Float, ly: Float) = ox + (lx * cs + ly * sn) * sc * pxPerFt
     private fun sy(lx: Float, ly: Float, lz: Float) =
-        oy + (lx * sn - ly * cs) * sc * pxPerFt * Camera.VK - lz * sc * pxPerFt
+        oy + (lx * sn - ly * cs) * sc * pxPerFt * vk - lz * sc * pxPerFt
 
     private fun add(kind: Int, x1: Float, y1: Float, z1: Float, x2: Float, y2: Float, z2: Float, w: Float, color: Int) {
         val my = ((y1 + y2) * 0.5f)
@@ -247,7 +255,7 @@ class CharacterArt(val pxPerFt: Float) {
         dstOver.shader = RadialGradient(0f, 0f, rx, intArrayOf(Color.argb(120, 8, 18, 40), Color.argb(50, 8, 18, 40), Color.argb(0, 8, 18, 40)), floatArrayOf(0f, 0.6f, 1f), Shader.TileMode.CLAMP)
         c.save()
         c.translate(anchorX + 0.2f * pxPerFt, anchorY + 0.12f * pxPerFt)
-        c.scale(1f, Camera.VK)
+        c.scale(1f, vk)
         c.drawCircle(0f, 0f, rx, dstOver)
         c.restore()
         dstOver.shader = null

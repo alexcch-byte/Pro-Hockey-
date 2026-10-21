@@ -315,6 +315,101 @@ class Renderer(private val density: Float) {
 
     private var winterLandscape: Bitmap? = null
 
+    /** Picks the view for this renderer. Call before the first frame of a match (it is not changed mid-match). */
+    fun setViewMode(m: ViewMode) {
+        if (camera.mode == m && charArt != null) return
+        camera.setMode(m)
+        hud.compact = m == ViewMode.LONG
+        charArt = null
+        artDirty = true
+        if (camera.screenW > 1) { buildWinterLandscape() }
+    }
+
+    private val bgPaint = Paint()
+    private val vigTop = Paint()
+    private val vigSide = Paint()
+    private val vigMatrix = android.graphics.Matrix()
+    private var vigW = 0
+    private var vigH = 0
+
+    /** LONG view: dark gradient background (instead of a black void) and a soft far-end / edge vignette. */
+    private fun buildLongShaders() {
+        val w = camera.screenW.toFloat()
+        val h = camera.screenH.toFloat()
+        vigW = camera.screenW; vigH = camera.screenH
+        bgPaint.shader = LinearGradient(0f, 0f, 0f, h, intArrayOf(Color.parseColor("#0B1224"), Color.parseColor("#141F3A"), Color.parseColor("#070B16")), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP)
+        // Bake the top (far-end) darkening and the elliptical light pool into ONE half-resolution bitmap,
+        // drawn as a single scaled quad per frame (was two full-screen gradient draws).
+        val hw = max(2, camera.screenW / 2); val hh = max(2, camera.screenH / 2)
+        var bmp = vigBmp
+        if (bmp == null || bmp.width != hw || bmp.height != hh) {
+            bmp?.recycle()
+            bmp = Bitmap.createBitmap(hw, hh, Bitmap.Config.ARGB_8888)
+            vigBmp = bmp
+        } else bmp.eraseColor(0)
+        val bc = Canvas(bmp)
+        bc.scale(0.5f, 0.5f)
+        vigTop.shader = LinearGradient(0f, 0f, 0f, h * 0.5f, Color.argb(150, 4, 8, 20), Color.argb(0, 4, 8, 20), Shader.TileMode.CLAMP)
+        bc.drawRect(0f, 0f, w, h * 0.5f, vigTop)
+        val cx = w / 2f
+        val cy = camera.anchorY - h * 0.06f
+        val rx = w * 0.55f
+        val sh = RadialGradient(cx, cy, rx, intArrayOf(Color.argb(0, 4, 8, 20), Color.argb(0, 4, 8, 20), Color.argb(215, 4, 8, 20)), floatArrayOf(0f, 0.5f, 1f), Shader.TileMode.CLAMP)
+        vigMatrix.setScale(1f, (h * 0.66f) / rx, cx, cy)
+        sh.setLocalMatrix(vigMatrix)
+        vigSide.shader = sh
+        bc.drawRect(0f, 0f, w, h, vigSide)
+        vigSide.shader = null; vigTop.shader = null
+    }
+
+    private var vigBmp: Bitmap? = null
+
+    private var surroundBmp: Bitmap? = null
+    private val surroundDst = RectF()
+    private val surroundPalette = intArrayOf(
+        0xC83232, 0x3232C8, 0xDCDCDC, 0xDCC832, 0xFF8C00, 0x008080, 0x228B22, 0x8A2BE2)
+
+    /** SIDE view: dim, blurry dark-arena crowd backdrop baked once per size (drawn as one scaled opaque quad). */
+    private fun buildSurround(w: Int, h: Int): Bitmap {
+        val rw = max(2, w / 14); val rh = max(2, h / 14)
+        val px = IntArray(rw * rh)
+        val rnd = kotlin.random.Random(7)
+        for (y in 0 until rh) {
+            val f = y.toFloat() / rh
+            val br: Float; val bg: Float; val bb: Float
+            if (f < 0.6f) { val t = f / 0.6f; br = 11 + 9 * t; bg = 18 + 13 * t; bb = 36 + 22 * t }
+            else { val t = (f - 0.6f) / 0.4f; br = 20 - 10 * t; bg = 31 - 15 * t; bb = 58 - 26 * t }
+            for (x in 0 until rw) {
+                var r = br; var g = bg; var b = bb
+                if (rnd.nextFloat() < 0.55f) {
+                    val c = surroundPalette[rnd.nextInt(surroundPalette.size)]
+                    val k = 0.22f * (0.6f + 0.4f * rnd.nextFloat())
+                    r = r * (1 - k) + ((c shr 16) and 255) * k
+                    g = g * (1 - k) + ((c shr 8) and 255) * k
+                    b = b * (1 - k) + (c and 255) * k
+                }
+                px[y * rw + x] = (0xFF shl 24) or (r.toInt().coerceIn(0, 255) shl 16) or (g.toInt().coerceIn(0, 255) shl 8) or b.toInt().coerceIn(0, 255)
+            }
+        }
+        val bmp = Bitmap.createBitmap(rw, rh, Bitmap.Config.ARGB_8888)
+        bmp.setPixels(px, 0, rw, 0, 0, rw, rh)
+        return bmp
+    }
+
+
+    private fun drawLongVignette(canvas: Canvas) {
+        if (vigW != camera.screenW || vigH != camera.screenH) buildLongShaders()
+        val b = vigBmp ?: return
+        spriteDst.set(0f, 0f, camera.screenW.toFloat(), camera.screenH.toFloat())
+        canvas.drawBitmap(b, null, spriteDst, meshPaint)
+    }
+
+    private fun faceIdx(worldAngle: Float): Int =
+        if (camera.long) CharacterArt.facingIndexWorld(worldAngle) else CharacterArt.facingIndex(worldAngle)
+
+    /** Painter's-order key: bigger = nearer the camera. */
+    private fun depthKey(x: Float, y: Float): Float = if (camera.long) -x else y
+
     fun resize(w: Int, h: Int) {
         camera.resize(w, h)
         artDirty = true
@@ -369,6 +464,7 @@ class Renderer(private val density: Float) {
     }
 
     private fun buildWinterLandscape() {
+        val long = camera.long
         val pxPerFt = 5f
         val bw = (crowdRect.width() * pxPerFt).toInt().coerceAtLeast(8)
         val bh = (crowdRect.height() * pxPerFt).toInt().coerceAtLeast(8)
@@ -383,15 +479,28 @@ class Renderer(private val density: Float) {
 
         // Distant alpine mountain silhouettes
         val mountainPath = Path()
-        mountainPath.moveTo(-Camera.WORLD_HALF_W - 5f, -Camera.WORLD_HALF_H)
-        mountainPath.lineTo(-Camera.WORLD_HALF_W - 5f, -Camera.WORLD_HALF_H + 8f)
-        var mx = -Camera.WORLD_HALF_W
-        while (mx <= Camera.WORLD_HALF_W + 10f) {
-            mountainPath.lineTo(mx, -Camera.WORLD_HALF_H + 4f + rng.nextFloat() * 7f)
-            mx += 12f
+        if (long) {
+            // mountains along the far end (x = +WORLD_HALF_W)
+            mountainPath.moveTo(Camera.WORLD_HALF_W, -Camera.WORLD_HALF_H - 5f)
+            mountainPath.lineTo(Camera.WORLD_HALF_W - 8f, -Camera.WORLD_HALF_H - 5f)
+            var my = -Camera.WORLD_HALF_H
+            while (my <= Camera.WORLD_HALF_H + 10f) {
+                mountainPath.lineTo(Camera.WORLD_HALF_W - 4f - rng.nextFloat() * 7f, my)
+                my += 12f
+            }
+            mountainPath.lineTo(Camera.WORLD_HALF_W, Camera.WORLD_HALF_H + 5f)
+            mountainPath.close()
+        } else {
+            mountainPath.moveTo(-Camera.WORLD_HALF_W - 5f, -Camera.WORLD_HALF_H)
+            mountainPath.lineTo(-Camera.WORLD_HALF_W - 5f, -Camera.WORLD_HALF_H + 8f)
+            var mx = -Camera.WORLD_HALF_W
+            while (mx <= Camera.WORLD_HALF_W + 10f) {
+                mountainPath.lineTo(mx, -Camera.WORLD_HALF_H + 4f + rng.nextFloat() * 7f)
+                mx += 12f
+            }
+            mountainPath.lineTo(Camera.WORLD_HALF_W + 5f, -Camera.WORLD_HALF_H)
+            mountainPath.close()
         }
-        mountainPath.lineTo(Camera.WORLD_HALF_W + 5f, -Camera.WORLD_HALF_H)
-        mountainPath.close()
         p.color = Color.parseColor("#152438")
         p.style = Paint.Style.FILL
         c.drawPath(mountainPath, p)
@@ -427,6 +536,11 @@ class Renderer(private val density: Float) {
             val ty = (sin(angle) * dist).toFloat()
             if (kotlin.math.abs(tx) <= Camera.WORLD_HALF_W - 2f && kotlin.math.abs(ty) <= Camera.WORLD_HALF_H - 2f) {
                 val treeScale = 0.85f + rng.nextFloat() * 0.65f
+                c.save()
+                c.translate(tx, ty)
+                if (long) c.rotate(90f)   // tree tips point toward the far end
+                val tx = 0f
+                val ty = 0f
                 c.drawRect(tx - 0.25f * treeScale, ty, tx + 0.25f * treeScale, ty + 1.2f * treeScale, trunkPaint)
                 for (tier in 0..2) {
                     val tierY = ty - tier * 1.0f * treeScale
@@ -446,13 +560,17 @@ class Renderer(private val density: Float) {
                     capPath.close()
                     c.drawPath(capPath, snowCap)
                 }
+                c.restore()
             }
             angle += 0.16 + rng.nextDouble() * 0.08
         }
 
         // Cozy rustic cabin glowing softly in the distance near corner
-        val cabinX = -Rink.HALF_L - 8f
-        val cabinY = -Rink.HALF_W - 7f
+        c.save()
+        c.translate(-Rink.HALF_L - 8f, -Rink.HALF_W - 7f)
+        if (long) c.rotate(90f)
+        val cabinX = 0f
+        val cabinY = 0f
         p.color = Color.parseColor("#422A1A")
         c.drawRect(cabinX - 3.5f, cabinY - 2.5f, cabinX + 3.5f, cabinY + 2.5f, p)
         val roofPath = Path()
@@ -465,6 +583,7 @@ class Renderer(private val density: Float) {
         val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#F59E0B"); style = Paint.Style.FILL }
         c.drawRect(cabinX - 1.5f, cabinY - 0.5f, cabinX - 0.3f, cabinY + 0.9f, glowPaint)
         c.drawRect(cabinX + 0.3f, cabinY - 0.5f, cabinX + 1.5f, cabinY + 0.9f, glowPaint)
+        c.restore()
 
         winterLandscape?.recycle()
         winterLandscape = bmp
@@ -515,13 +634,14 @@ class Renderer(private val density: Float) {
     @Volatile private var warmGen = 0
 
     private fun startSpriteWarm(world: World, scale: Float) {
+        val vk = camera.spriteVk
         val gen: Int
         synchronized(spriteLock) { gen = ++warmGen }
         val infos = arrayOf(world.teams[0].info, world.teams[1].info)
         val t = Thread({
             android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND)
             try {
-                val art = CharacterArt(scale)
+                val art = CharacterArt(scale, vk)
                 val nf = CharacterArt.FACINGS
                 fun put(arr: Array<Bitmap?>, idx: Int, make: () -> Bitmap) {
                     if (warmGen != gen || arr[idx] != null) return
@@ -540,6 +660,15 @@ class Renderer(private val density: Float) {
                 for (stance in 0..1) for (f in 0 until nf) for (tm in 0..1) {
                     put(goalieSpr[tm], stance * nf + f) { art.goalie(infos[tm], f, stance) }
                 }
+                if (warmGen == gen) {
+                    var bytes = 0L
+                    synchronized(spriteLock) {
+                        for (a in skaterSpr) for (b in a) if (b != null) bytes += b.allocationByteCount
+                        for (a in goalieSpr) for (b in a) if (b != null) bytes += b.allocationByteCount
+                        for (a in headSpr) for (b in a) if (b != null) bytes += b.allocationByteCount
+                    }
+                    android.util.Log.i("PowerPlay", "sprites warmed: ${bytes / 1048576} MB at ${"%.1f".format(scale)} px/ft")
+                }
             } catch (_: Throwable) {
                 // Warming is only an optimisation; the lazy path still works.
             }
@@ -550,10 +679,10 @@ class Renderer(private val density: Float) {
 
     /** Rebuilds sprites, stands, walls and the baked rink when the zoom, teams or arena change. */
     private fun ensureArt(world: World) {
-        val rScale = min(camera.scale, 13f)
+        val rScale = if (camera.long) min(camera.baseScale * 1.2f, if (camera.screenH <= 800) 13f else 14.5f) else min(camera.baseScale, 13f)
         if (charArt == null || kotlin.math.abs(charArtScale - rScale) > 0.01f) {
             clearSprites()
-            charArt = CharacterArt(rScale)
+            charArt = CharacterArt(rScale, camera.spriteVk)
             charArtScale = rScale
         }
         var warm = false
@@ -578,7 +707,7 @@ class Renderer(private val density: Float) {
         bakeAway = a
         bakePond = pond
         if (!pond) {
-            art.buildStands(h, a)
+            art.buildStands(h, a, camera.long)
             art.buildWall(h, a)
         }
         bakeRink(world)
@@ -639,9 +768,21 @@ class Renderer(private val density: Float) {
         }
 
         val isPond = world.arenaType == ArenaType.WINTER_POND
-        canvas.drawColor(if (isPond) Color.parseColor("#09101C") else Color.parseColor("#05080F"))
+        if (!camera.long && !isPond) {
+            // SIDE: never leave a black void under the near boards / bottom-left corner.
+            var sb = surroundBmp
+            if (sb == null || sb.width != max(2, camera.screenW / 14) || sb.height != max(2, camera.screenH / 14)) {
+                sb?.recycle(); sb = buildSurround(camera.screenW, camera.screenH); surroundBmp = sb
+            }
+            surroundDst.set(0f, 0f, camera.screenW.toFloat(), camera.screenH.toFloat())
+            canvas.drawBitmap(sb, null, surroundDst, meshPaint)
+        } else canvas.drawColor(if (isPond) Color.parseColor("#09101C") else Color.parseColor("#05080F"))
+        if (camera.long && !isPond) {
+            if (vigW != camera.screenW || vigH != camera.screenH) buildLongShaders()
+            canvas.drawRect(0f, 0f, camera.screenW.toFloat(), camera.screenH.toFloat(), bgPaint)
+        }
         if (isPond) {
-            val horizon = camera.py(-Camera.WORLD_HALF_H) + 2f
+            val horizon = (if (camera.long) camera.py(Camera.WORLD_HALF_W, 0f) else camera.py(0f, -Camera.WORLD_HALF_H)) + 2f
             val sky = skyBmp
             if (sky != null && horizon > 0f) {
                 val hh = min(horizon, camera.screenW * 0.3f)
@@ -649,22 +790,26 @@ class Renderer(private val density: Float) {
                 canvas.drawBitmap(sky, null, spriteDst, meshPaint)
             }
             winterLandscape?.let {
-                art.drawWarped(canvas, camera, it, crowdRect.left, crowdRect.top, crowdRect.right, crowdRect.bottom, 1, meshPaint)
+                art.drawWarped(canvas, camera, it, crowdRect.left, crowdRect.top, crowdRect.right, crowdRect.bottom, 1)
             }
         } else {
             art.drawStands(canvas, camera); art.drawFlashes(canvas)
         }
         rinkBake?.let {
-            art.drawWarped(canvas, camera, it, bakeRect.left, bakeRect.top, bakeRect.right, bakeRect.bottom, 0, meshPaint)
+            art.drawWarped(canvas, camera, it, bakeRect.left, bakeRect.top, bakeRect.right, bakeRect.bottom, 0)
         }
         if (!isPond) art.drawWalls(canvas, camera)
         drawIceDynamic(canvas, world)
-        drawNets(canvas)
+        // LONG view: far goal first (players in front are drawn over it), near goal after the players.
+        drawNets(canvas, 1f)
+        if (!camera.long) drawNets(canvas, -1f)
         hud.drawCelebrationGround(canvas, world, camera)  // goal ring / net glow sit on the ice, under the players
         drawObjects(canvas, world, localTeam, isPond)
+        if (camera.long) drawNets(canvas, -1f)  // its netting is in front of its goalie
         drawGlassShards(canvas, world)
         if (isPond) drawSnow(canvas)
 
+        if (camera.long) drawLongVignette(canvas)
         hud.update(world, localTeam, if (hudFrozen) 0f else dt, camera.screenW, camera.screenH)
         hud.drawCelebrationBack(canvas, world, camera)
         hud.drawScoreboard(canvas, world)
@@ -680,11 +825,12 @@ class Renderer(private val density: Float) {
 
     /** Ground circle/ellipse in world feet; stroke widths on [paint] are in pixels. */
     private fun groundOval(canvas: Canvas, wx: Float, wy: Float, rFt: Float, paint: Paint) {
-        val k = camera.ppf(wy)
+        val k = camera.ppfAt(wx, wy)
         val cx = camera.px(wx, wy)
-        val cy = camera.py(wy)
+        val cy = camera.py(wx, wy)
         val rx = rFt * k
-        tmpRect.set(cx - rx, cy - rx * camera.vk, cx + rx, cy + rx * camera.vk)
+        val ry = rx * camera.vkAt(wx, wy)
+        tmpRect.set(cx - rx, cy - ry, cx + rx, cy + ry)
         canvas.drawOval(tmpRect, paint)
     }
 
@@ -693,9 +839,9 @@ class Renderer(private val density: Float) {
         if (scratchCount > 0) {
             for (i in 0 until scratchCount) {
                 scratchLines[i * 4] = camera.px(scratchX1[i], scratchY1[i])
-                scratchLines[i * 4 + 1] = camera.py(scratchY1[i])
+                scratchLines[i * 4 + 1] = camera.py(scratchX1[i], scratchY1[i])
                 scratchLines[i * 4 + 2] = camera.px(scratchX2[i], scratchY2[i])
-                scratchLines[i * 4 + 3] = camera.py(scratchY2[i])
+                scratchLines[i * 4 + 3] = camera.py(scratchX2[i], scratchY2[i])
             }
             scratchPaint.alpha = 80
             scratchPaint.strokeWidth = 1.7f
@@ -703,19 +849,22 @@ class Renderer(private val density: Float) {
         }
         if (world.phase == Phase.FACEOFF) {
             val r = 2.2f + 0.6f * sin(animTime * 8f)
-            val fk = camera.ppf(world.faceoffY)
+            val fk = camera.ppfAt(world.faceoffX, world.faceoffY)
             val fcx = camera.px(world.faceoffX, world.faceoffY)
-            val fcy = camera.py(world.faceoffY)
-            tmpRect.set(fcx - 9f * fk, fcy - 9f * fk * camera.vk, fcx + 9f * fk, fcy + 9f * fk * camera.vk)
-            val leftTeam = if (world.teams[0].ownGoalX < 0f) 0 else 1
-            val li = world.teams[leftTeam].info.primary
-            val ri = world.teams[1 - leftTeam].info.primary
+            val fcy = camera.py(world.faceoffX, world.faceoffY)
+            val fvy = 9f * fk * camera.vkAt(world.faceoffX, world.faceoffY)
+            tmpRect.set(fcx - 9f * fk, fcy - fvy, fcx + 9f * fk, fcy + fvy)
+            // The team defending the near (bottom) end owns the lower half of the marker.
+            val nearTeam = if (world.teams[0].ownGoalX < 0f) 0 else 1
+            val li = world.teams[nearTeam].info.primary
+            val ri = world.teams[1 - nearTeam].info.primary
             faceoffFill.color = Color.argb(90, Color.red(li), Color.green(li), Color.blue(li))
-            canvas.drawArc(tmpRect, 90f, 180f, true, faceoffFill)
+            // LONG view: halves are lower/upper; SIDE view: left/right.
+            canvas.drawArc(tmpRect, if (camera.long) 0f else 90f, 180f, true, faceoffFill)
             faceoffFill.color = Color.argb(90, Color.red(ri), Color.green(ri), Color.blue(ri))
-            canvas.drawArc(tmpRect, 270f, 180f, true, faceoffFill)
+            canvas.drawArc(tmpRect, if (camera.long) 180f else 270f, 180f, true, faceoffFill)
             faceoffPulse.alpha = 140
-            faceoffPulse.strokeWidth = 0.25f * camera.ppf(world.faceoffY)
+            faceoffPulse.strokeWidth = 0.25f * camera.ppfAt(world.faceoffX, world.faceoffY)
             groundOval(canvas, world.faceoffX, world.faceoffY, r, faceoffPulse)
         }
         if (world.phase == Phase.GOAL) {
@@ -723,8 +872,8 @@ class Renderer(private val density: Float) {
             sirenPaint.color = Color.argb((130 + pulse * 125).toInt(), 255, 20, 20)
             for (e in signs) {
                 val bx = e * (Rink.GOAL_LINE_X + Rink.NET_DEPTH + 1.2f)
-                val k = camera.ppf(0f)
-                canvas.drawCircle(camera.px(bx, 0f), camera.py(0f) - 3.2f * k, (1.4f + pulse * 0.6f) * k, sirenPaint)
+                val k = camera.ppfAt(bx, 0f)
+                canvas.drawCircle(camera.px(bx, 0f, 3.2f), camera.py(bx, 0f, 3.2f), (1.4f + pulse * 0.6f) * k, sirenPaint)
                 sirenBeam.color = Color.argb((40 + pulse * 50).toInt(), 255, 40, 40)
                 groundOval(canvas, bx, 0f, 7f, sirenBeam)
             }
@@ -742,8 +891,8 @@ class Renderer(private val density: Float) {
     private val netTubeLight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(150, 255, 190, 190); style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND }
 
     private fun proj3(i: Int, x: Float, y: Float, z: Float) {
-        np[i * 2] = camera.px(x, y)
-        np[i * 2 + 1] = camera.py(y) - z * camera.ppf(y)
+        np[i * 2] = camera.px(x, y, z)
+        np[i * 2 + 1] = camera.py(x, y, z)
     }
 
     private fun faceQuad(canvas: Canvas, a: Int, b: Int, c: Int, d: Int) {
@@ -780,12 +929,12 @@ class Renderer(private val density: Float) {
         canvas.drawLine(np[a * 2], np[a * 2 + 1], np[b * 2], np[b * 2 + 1], netTube)
     }
 
-    /** Both goal cages: back netting, side panels, top, then the red frame. The goalie is drawn after. */
-    private fun drawNets(canvas: Canvas) {
+    /** One goal cage ([e] = +1 far end, -1 near end): back netting, side panels, top, then the red frame. */
+    private fun drawNets(canvas: Canvas, e: Float) {
         val hw = Rink.NET_HALF_W
         val h = 4.2f
         val hb = 3.0f
-        for (e in signs) {
+        run {
             val gx = e * Rink.GOAL_LINE_X
             val bx = e * (Rink.GOAL_LINE_X + Rink.NET_DEPTH)
             proj3(0, gx, -hw, 0f); proj3(1, gx, -hw, h)
@@ -801,7 +950,7 @@ class Renderer(private val density: Float) {
             n = netGridLines(n, 1, 3, 7, 5, 6, 4)
             n = netGridLines(n, 2, 3, 7, 6, 5, 4)
             canvas.drawLines(netLines, 0, n, netGrid)
-            val k = camera.ppf(0f)
+            val k = camera.ppfAt(gx, 0f)
             netTube.strokeWidth = 0.42f * k
             tube(canvas, 4, 5); tube(canvas, 6, 7); tube(canvas, 5, 7)
             tube(canvas, 0, 4); tube(canvas, 2, 6); tube(canvas, 4, 6)
@@ -854,7 +1003,10 @@ class Renderer(private val density: Float) {
         canvas.drawCircle(0f, 0f, 10.2f, logoRing)
         logoText.color = hi.text
         logoText.alpha = 235
+        canvas.save()
+        if (camera.long) canvas.rotate(90f)   // read left-to-right on screen
         canvas.drawText(hi.abbr, 0f, 2.6f, logoText)
+        canvas.restore()
         canvas.drawCircle(0f, 0f, Rink.FACEOFF_R, circleBlue)
         canvas.drawCircle(0f, 0f, 1f, dotBlue)
 
@@ -959,11 +1111,11 @@ class Renderer(private val density: Float) {
             val life = sprayLife[i]
             if (life <= 0f) continue
             val t = (life / sprayMax[i]).coerceIn(0f, 1f)
-            val rad = (0.22f + (1f - t) * 0.28f) * camera.ppf(sprayY[i])
+            val rad = (0.22f + (1f - t) * 0.28f) * camera.ppfAt(sprayX[i], sprayY[i])
             sprayOuter.alpha = (170 * t).toInt()
             sprayInner.alpha = (230 * t).toInt()
             val cx = camera.px(sprayX[i], sprayY[i])
-            val cy = camera.py(sprayY[i])
+            val cy = camera.py(sprayX[i], sprayY[i])
             canvas.drawCircle(cx, cy, rad, sprayOuter)
             canvas.drawCircle(cx, cy, rad * 0.55f, sprayInner)
         }
@@ -999,7 +1151,7 @@ class Renderer(private val density: Float) {
     private fun drawSnow(canvas: Canvas) {
         for (i in 0 until MAX_SNOW) {
             snowflakePaint.alpha = snowAlpha[i]
-            canvas.drawCircle(camera.px(snowX[i], snowY[i]), camera.py(snowY[i]), snowR[i] * camera.ppf(snowY[i]), snowflakePaint)
+            canvas.drawCircle(camera.px(snowX[i], snowY[i]), camera.py(snowX[i], snowY[i]), snowR[i] * camera.ppfAt(snowX[i], snowY[i]), snowflakePaint)
         }
     }
 
@@ -1047,10 +1199,10 @@ class Renderer(private val density: Float) {
             val life = breathLife[i]
             if (life <= 0f) continue
             val frac = (life / breathMax[i]).coerceIn(0f, 1f)
-            val k = camera.ppf(breathY[i])
+            val k = camera.ppfAt(breathX[i], breathY[i])
             val rad = (breathR[i] + (1f - frac) * 0.45f) * k
             breathPaint.alpha = (130 * frac).toInt()
-            canvas.drawCircle(camera.px(breathX[i], breathY[i]), camera.py(breathY[i]) - 5.4f * k, rad, breathPaint)
+            canvas.drawCircle(camera.px(breathX[i], breathY[i]), camera.py(breathX[i], breathY[i], 5.4f), rad, breathPaint)
         }
     }
 
@@ -1100,9 +1252,9 @@ class Renderer(private val density: Float) {
             val frac = (world.glassShatterTimer / 4.0f).coerceIn(0f, 1f)
             glassSpiderwebPaint.alpha = (240 * frac).toInt()
             glassSpiderwebFill.alpha = (50 * frac).toInt()
-            val k = camera.ppf(world.glassShatterY)
+            val k = camera.ppfAt(world.glassShatterX, world.glassShatterY)
             canvas.save()
-            canvas.translate(camera.px(world.glassShatterX, world.glassShatterY), camera.py(world.glassShatterY) - 5.5f * k)
+            canvas.translate(camera.px(world.glassShatterX, world.glassShatterY), camera.py(world.glassShatterX, world.glassShatterY, 5.5f))
             canvas.scale(k, k)
             canvas.drawCircle(0f, 0f, 1.8f, glassSpiderwebFill)
             val rings = floatArrayOf(1.2f, 2.6f, 4.2f)
@@ -1131,9 +1283,9 @@ class Renderer(private val density: Float) {
             if (life <= 0f) continue
             val frac = (life / shardMax[i]).coerceIn(0f, 1f)
             val sz = shardSize[i]
-            val k = camera.ppf(shardY[i])
+            val k = camera.ppfAt(shardX[i], shardY[i])
             canvas.save()
-            canvas.translate(camera.px(shardX[i], shardY[i]), camera.py(shardY[i]) - 4f * k * frac)
+            canvas.translate(camera.px(shardX[i], shardY[i]), camera.py(shardX[i], shardY[i], 4f * frac))
             canvas.rotate(shardRot[i])
             canvas.scale(k, k)
             glassShardFill.alpha = (190 * frac).toInt()
@@ -1151,8 +1303,11 @@ class Renderer(private val density: Float) {
 
     // ================================================================ players
 
-    private fun ovalPx(canvas: Canvas, cx: Float, cy: Float, rx: Float, paint: Paint) {
-        tmpRect.set(cx - rx, cy - rx * camera.vk, cx + rx, cy + rx * camera.vk)
+    private var ovalVk = 0.8f
+
+    /** Screen ellipse; the squash [vk] is that of the item's own ground point (set per item, not shared). */
+    private fun ovalPx(canvas: Canvas, cx: Float, cy: Float, rx: Float, paint: Paint, vk: Float = ovalVk) {
+        tmpRect.set(cx - rx, cy - rx * vk, cx + rx, cy + rx * vk)
         canvas.drawOval(tmpRect, paint)
     }
 
@@ -1173,18 +1328,18 @@ class Renderer(private val density: Float) {
                 val s = list[i]
                 if (world.isShootout && kotlin.math.abs(s.y) >= 45f) continue
                 orderIdx[n] = t * 6 + i
-                orderKey[n] = s.y
+                orderKey[n] = depthKey(s.x, s.y)
                 n++
             }
         }
         val showRef = !isPond && !world.isShootout
         drawSpray(canvas)
         orderIdx[n] = 100
-        orderKey[n] = world.puck.y
+        orderKey[n] = depthKey(world.puck.x, world.puck.y)
         n++
         if (showRef) {
             orderIdx[n] = 101
-            orderKey[n] = art.refY
+            orderKey[n] = depthKey(art.refX, art.refY)
             n++
         }
         for (i in 1 until n) {
@@ -1213,14 +1368,14 @@ class Renderer(private val density: Float) {
 
     private fun drawReferee(canvas: Canvas, world: World) {
         val ch = charArt ?: return
-        val k = camera.ppf(art.refY)
-        val fi = CharacterArt.facingIndex(art.refAngle)
+        val k = camera.ppfAt(art.refX, art.refY)
+        val fi = faceIdx(art.refAngle)
         var frame = ((art.refStride * 1.3f / (2f * PI.toFloat())) * CharacterArt.STRIDE_FRAMES).toInt() % CharacterArt.STRIDE_FRAMES
         if (frame < 0) frame += CharacterArt.STRIDE_FRAMES
         val idx = frame * CharacterArt.FACINGS + fi
         val bmp = refSpr[idx] ?: ch.skater(world.teams[0].info, fi, frame, true).also { refSpr[idx] = it }
         val rsx = camera.px(art.refX, art.refY)
-        val rsy = camera.py(art.refY)
+        val rsy = camera.py(art.refX, art.refY)
         val rscale = k / ch.pxPerFt
         drawBillboard(canvas, ch, bmp, rsx, rsy, rscale)
         val hb = refHead[fi] ?: ch.head(world.teams[0].info, 2, 0, true, fi).also { refHead[fi] = it }
@@ -1237,9 +1392,9 @@ class Renderer(private val density: Float) {
         val ch = charArt ?: return
         val info = world.teams[s.team].info
         val r = s.radius
-        val k = camera.ppf(s.y)
+        val k = camera.ppfAt(s.x, s.y)
         val sx = camera.px(s.x, s.y)
-        val sy = camera.py(s.y)
+        val sy = camera.py(s.x, s.y)
         if (controlled) {
             val pulse = 1f + 0.06f * sin(animTime * 6f)
             ringPaint.strokeWidth = 0.42f * k
@@ -1250,7 +1405,7 @@ class Renderer(private val density: Float) {
         }
         var ang = s.facing
         if (s.dekeTimer > 0f) ang += s.dekeDir * (s.dekeTimer / 0.38f) * 0.38f
-        val fi = CharacterArt.facingIndex(ang)
+        val fi = faceIdx(ang)
         val stunned = s.stunTimer > 0f
         val scale = k / ch.pxPerFt
         val spr: Bitmap
@@ -1312,8 +1467,8 @@ class Renderer(private val density: Float) {
                 val fr = (0.36f * (1f - fPhase * 0.7f)).coerceAtLeast(0.08f)
                 val alpha = (235 * (1f - fPhase)).toInt().coerceIn(0, 255)
                 fireEmberPaint.color = if (j % 2 == 0) Color.argb(alpha, 255, 90, 10) else Color.argb(alpha, 255, 210, 30)
-                val fk = camera.ppf(fy)
-                canvas.drawCircle(camera.px(fx, fy), camera.py(fy) - 0.9f * fk, fr * fk * 1.6f, fireEmberPaint)
+                val fk = camera.ppfAt(fx, fy)
+                canvas.drawCircle(camera.px(fx, fy), camera.py(fx, fy, 0.9f), fr * fk * 1.6f, fireEmberPaint)
             }
         }
 
@@ -1354,7 +1509,8 @@ class Renderer(private val density: Float) {
 
         if (controlled && charge > 0f && world.puck.carrier === s) {
             val rr = r * 1.9f * k
-            tmpRect.set(sx - rr, sy - rr * camera.vk, sx + rr, sy + rr * camera.vk)
+            val rry = rr * camera.vkAt(s.x, s.y)
+            tmpRect.set(sx - rr, sy - rry, sx + rr, sy + rry)
             meterBack.strokeWidth = 0.5f * k
             meterFill.strokeWidth = 0.5f * k
             canvas.drawArc(tmpRect, -210f, 240f, false, meterBack)
@@ -1367,9 +1523,10 @@ class Renderer(private val density: Float) {
         puckTrailX[puckTrailHead] = p.x
         puckTrailY[puckTrailHead] = p.y
         puckTrailHead = (puckTrailHead + 1) % TRAIL_POINTS
-        val k = camera.ppf(p.y)
+        val k = camera.ppfAt(p.x, p.y)
         val cx = camera.px(p.x, p.y)
-        val cy = camera.py(p.y)
+        val cy = camera.py(p.x, p.y)
+        ovalVk = camera.vkAt(p.x, p.y)
 
         if (p.carrier == null && sp > 35f) {
             val isBoomer = sp > 95f
@@ -1386,8 +1543,8 @@ class Renderer(private val density: Float) {
                     cometTrail.strokeWidth = (0.65f * frac + 0.2f) * k
                 }
                 canvas.drawLine(
-                    camera.px(puckTrailX[prevIdx], puckTrailY[prevIdx]), camera.py(puckTrailY[prevIdx]),
-                    camera.px(puckTrailX[currIdx], puckTrailY[currIdx]), camera.py(puckTrailY[currIdx]), cometTrail
+                    camera.px(puckTrailX[prevIdx], puckTrailY[prevIdx]), camera.py(puckTrailX[prevIdx], puckTrailY[prevIdx]),
+                    camera.px(puckTrailX[currIdx], puckTrailY[currIdx]), camera.py(puckTrailX[currIdx], puckTrailY[currIdx]), cometTrail
                 )
             }
             if (isBoomer) {
@@ -1520,7 +1677,7 @@ class Renderer(private val density: Float) {
         if (kotlin.math.hypot(shooter.x, shooter.y) > 12f) return false
         if (switchShooterRect.contains(x, y)) return true
         val sx = camera.toScreenX(shooter.x, shooter.y)
-        val sy = camera.toScreenY(shooter.y)
+        val sy = camera.toScreenY(shooter.x, shooter.y)
         return kotlin.math.hypot(x - sx, y - sy) <= dp(45f)
     }
 

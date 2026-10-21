@@ -41,6 +41,7 @@ class WorldArt {
         private const val RAKE_H = 20f
         private const val SIDE_SPAN = 120f
         private const val RAKE_D = 26f
+        private const val LONG_STRETCH = 2.4f
     }
 
     private val tmpRect = RectF()
@@ -202,28 +203,81 @@ class WorldArt {
 
     // ------------------------------------------------------------------ perspective helpers
 
-    private val warpVerts = arrayOf(FloatArray(33 * 21 * 2), FloatArray(25 * 17 * 2))
-    private val warpDims = arrayOf(intArrayOf(32, 20), intArrayOf(24, 16))
+    // SIDE view: the original whole-bitmap mesh (bitmap columns along screen x).
+    private val sideWarpVerts = arrayOf(FloatArray(33 * 21 * 2), FloatArray(25 * 17 * 2))
+    private val sideWarpDims = arrayOf(intArrayOf(32, 20), intArrayOf(24, 16))
+    private val meshPaint = Paint(Paint.FILTER_BITMAP_FLAG)
 
-    /**
-     * Draws a top-down bitmap covering the world rectangle (l, t, r, b) through the camera's
-     * perspective by warping a mesh of it. [slot] picks a preallocated vertex buffer (0 rink, 1 landscape).
-     */
-    fun drawWarped(canvas: Canvas, cam: Camera, bmp: Bitmap, l: Float, t: Float, r: Float, b: Float, slot: Int, paint: Paint) {
-        val mw = warpDims[slot][0]
-        val mh = warpDims[slot][1]
-        val v = warpVerts[slot]
+    private fun drawWarpedSide(canvas: Canvas, cam: Camera, bmp: Bitmap, l: Float, t: Float, r: Float, b: Float, slot: Int) {
+        val mw = sideWarpDims[slot][0]
+        val mh = sideWarpDims[slot][1]
+        val v = sideWarpVerts[slot]
         var n = 0
         for (j in 0..mh) {
             val wy = t + (b - t) * j / mh
-            val sy = cam.py(wy)
+            val sy = cam.py(l, wy)
             for (i in 0..mw) {
                 val wx = l + (r - l) * i / mw
                 v[n++] = cam.px(wx, wy)
                 v[n++] = sy
             }
         }
-        canvas.drawBitmapMesh(bmp, mw, mh, v, 0, null, 0, paint)
+        canvas.drawBitmapMesh(bmp, mw, mh, v, 0, null, 0, meshPaint)
+    }
+
+    private class WarpSlot {
+        var bmp: Bitmap? = null
+        val paint = Paint(Paint.FILTER_BITMAP_FLAG)
+    }
+
+    private val warpSlots = arrayOf(WarpSlot(), WarpSlot())
+    private val WARP_ROWS = 40     // along the rink (x): the perspective direction
+    private val WARP_COLS = 10     // across the rink (y)
+    private val warpVerts = FloatArray((WARP_ROWS + 1) * (WARP_COLS + 1) * 2)
+    private val warpTex = FloatArray((WARP_ROWS + 1) * (WARP_COLS + 1) * 2)
+    private val warpIdx = ShortArray(WARP_ROWS * WARP_COLS * 6).also { idx ->
+        var n = 0
+        for (j in 0 until WARP_ROWS) for (i in 0 until WARP_COLS) {
+            val a0 = (j * (WARP_COLS + 1) + i).toShort()
+            val b0 = (a0 + 1).toShort()
+            val c0 = ((j + 1) * (WARP_COLS + 1) + i).toShort()
+            val d0 = (c0 + 1).toShort()
+            idx[n++] = a0; idx[n++] = b0; idx[n++] = c0
+            idx[n++] = b0; idx[n++] = d0; idx[n++] = c0
+        }
+    }
+
+    /**
+     * Draws a top-down bitmap covering the world rectangle x in [l, r], y in [t, b] (bitmap columns run
+     * along world x, rows along world y) through the camera's perspective. Only the part of the rectangle
+     * that the screen can see is meshed. [slot] picks the cached shader (0 rink, 1 landscape).
+     */
+    fun drawWarped(canvas: Canvas, cam: Camera, bmp: Bitmap, l: Float, t: Float, r: Float, b: Float, slot: Int) {
+        if (!cam.long) { drawWarpedSide(canvas, cam, bmp, l, t, r, b, slot); return }
+        val ws = warpSlots[slot]
+        if (ws.bmp !== bmp) {
+            ws.bmp = bmp
+            ws.paint.shader = BitmapShader(bmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        }
+        val x0 = max(l, cam.visibleXMin())
+        val x1 = min(r, cam.visibleXMax())
+        if (x1 - x0 < 1f) return
+        val tw = bmp.width.toFloat()
+        val th = bmp.height.toFloat()
+        val v = warpVerts
+        val tx = warpTex
+        var n = 0
+        for (j in 0..WARP_ROWS) {
+            val wx = x0 + (x1 - x0) * j / WARP_ROWS
+            val sy = cam.py(wx, 0f)
+            val u = (wx - l) / (r - l) * tw
+            for (i in 0..WARP_COLS) {
+                val wy = t + (b - t) * i / WARP_COLS
+                v[n] = cam.px(wx, wy); tx[n] = u; n++
+                v[n] = sy; tx[n] = (wy - t) / (b - t) * th; n++
+            }
+        }
+        canvas.drawVertices(Canvas.VertexMode.TRIANGLES, n, v, 0, tx, 0, null, 0, warpIdx, 0, warpIdx.size, ws.paint)
     }
 
 
@@ -310,8 +364,8 @@ class WorldArt {
         }
     }
 
-    private val wallBatch = QuadBatch(100)
-    private val rakeBatch = QuadBatch(100)
+    private val wallBatch = QuadBatch(240)
+    private val rakeBatch = QuadBatch(240)
 
     // ------------------------------------------------------------------ boards and glass walls
 
@@ -347,7 +401,7 @@ class WorldArt {
         val hw = Rink.HALF_W
         fun straight(x1: Float, y1: Float, x2: Float, y2: Float) {
             val len = hypot(x2 - x1, y2 - y1)
-            val k = max(1, Math.ceil((len / 8f).toDouble()).toInt())
+            val k = max(1, Math.ceil((len / 4f).toDouble()).toInt())
             for (i in 0 until k) {
                 xs.add(x1 + (x2 - x1) * i / k)
                 ys.add(y1 + (y2 - y1) * i / k)
@@ -500,27 +554,32 @@ class WorldArt {
         }
     }
 
+    /** True when the inner face of perimeter segment [i] faces the camera (which hangs behind the near end). */
+    private fun segmentFacesCamera(cam: Camera, i: Int): Boolean {
+        val mx = (perX[i] + perX[i + 1]) * 0.5f
+        val my = (perY[i] + perY[i + 1]) * 0.5f
+        if (!cam.long) {
+            // SIDE view: the camera sits behind the near side boards; the near wall is never drawn.
+            return nrmX[i] * (cam.x - mx) + nrmY[i] * (cam.y + 70f - my) > 0f && my < cam.y + 34f
+        }
+        val camX = cam.x - cam.dist * cam.cosT
+        return nrmX[i] * (camX - mx) + nrmY[i] * (cam.y - my) > 0f
+    }
+
     /** The wall faces that can be seen from the camera, as one textured, perspective-projected mesh. */
     fun drawWalls(canvas: Canvas, cam: Camera) {
         if (wallBmp == null) return
         for (i in 0 until perN) {
-            val k = cam.ppf(perY[i])
-            val bx = cam.px(perX[i], perY[i])
-            val by = cam.py(perY[i])
-            wallVerts[i * 4] = bx
-            wallVerts[i * 4 + 1] = by - wallH * k
-            wallVerts[i * 4 + 2] = bx
-            wallVerts[i * 4 + 3] = by
+            wallVerts[i * 4] = cam.px(perX[i], perY[i], wallH)
+            wallVerts[i * 4 + 1] = cam.py(perX[i], perY[i], wallH)
+            wallVerts[i * 4 + 2] = cam.px(perX[i], perY[i])
+            wallVerts[i * 4 + 3] = cam.py(perX[i], perY[i])
         }
         val sw = cam.screenW + 4f
         val sh = cam.screenH + 4f
         wallBatch.reset()
         for (i in 0 until perN - 1) {
-            val mx = (perX[i] + perX[i + 1]) * 0.5f
-            val my = (perY[i] + perY[i + 1]) * 0.5f
-            val vx = cam.x - mx
-            val vy = cam.y + 70f - my
-            if (nrmX[i] * vx + nrmY[i] * vy > 0f && my < cam.y + 34f) {
+            if (segmentFacesCamera(cam, i)) {
                 val j = i + 1
                 wallBatch.quad(
                     wallVerts[i * 4], wallVerts[i * 4 + 1], wallTex[i * 4], wallTex[i * 4 + 1],
@@ -536,16 +595,26 @@ class WorldArt {
 
     // ------------------------------------------------------------------ stands
 
-    private class Layer(val yb: Float, val hFt: Float, val wFt: Float, val dim: Float) {
+    private class Layer(val off: Float, val hFt: Float, val wFt: Float, val dim: Float) {
         var bmp: Bitmap? = null
         val dst = RectF()
     }
 
-    private val layers = arrayOf(
-        Layer(-Rink.HALF_W - 4f, 9f, 300f, 1.05f),
-        Layer(-Rink.HALF_W - 12f, 11f, 330f, 1.0f),
-        Layer(-Rink.HALF_W - 24f, 14f, 380f, 0.95f)
+    private val layersSide = arrayOf(
+        Layer(4f, 9f, 300f, 1.05f),
+        Layer(12f, 11f, 330f, 1.0f),
+        Layer(24f, 14f, 380f, 0.95f)
     )
+    /** LONG view: a taller wall of four tiers behind the far net, darker so it reads as a crowd mass. */
+    private val layersLong = arrayOf(
+        Layer(4f, 9f, 300f, 0.62f),
+        Layer(12f, 11f, 330f, 0.58f),
+        Layer(22f, 13f, 370f, 0.54f),
+        Layer(34f, 16f, 420f, 0.5f)
+    )
+    private var layers = layersSide
+    /** Desaturation (0..1) applied to spectator colours while baking. */
+    private var mute = 0f
     private var sideStand: Bitmap? = null
     private val standPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val sideVerts = FloatArray(8)
@@ -566,8 +635,16 @@ class WorldArt {
         Color.parseColor("#C2185B"), Color.parseColor("#7C4DFF"), Color.parseColor("#2B3A57"), Color.parseColor("#F1F5F9")
     )
 
-    private fun shade(color: Int, f: Float): Int =
-        Color.rgb((Color.red(color) * f).toInt().coerceIn(0, 255), (Color.green(color) * f).toInt().coerceIn(0, 255), (Color.blue(color) * f).toInt().coerceIn(0, 255))
+    private fun shade(color: Int, f: Float): Int {
+        var r = Color.red(color).toFloat()
+        var g = Color.green(color).toFloat()
+        var b = Color.blue(color).toFloat()
+        if (mute > 0f) {
+            val l = 0.3f * r + 0.59f * g + 0.11f * b
+            r += (l - r) * mute; g += (l - g) * mute; b += (l - b) * mute
+        }
+        return Color.rgb((r * f).toInt().coerceIn(0, 255), (g * f).toInt().coerceIn(0, 255), (b * f).toInt().coerceIn(0, 255))
+    }
 
     /** One upright spectator; [yb] is the bottom of his seat row. */
     private fun fan(c: Canvas, p: Paint, x: Float, yb: Float, shirt: Int, rng: Random, dim: Float) {
@@ -633,8 +710,10 @@ class WorldArt {
     }
 
     /** Bakes the three tiers behind the far wall plus the stand at the ends. */
-    fun buildStands(home: Int, away: Int) {
+    fun buildStands(home: Int, away: Int, long: Boolean = false) {
         val rng = Random(7)
+        layers = if (long) layersLong else layersSide
+        mute = if (long) 0.5f else 0f
         for ((li, l) in layers.withIndex()) {
             val bw = (l.wFt * STAND_PX).toInt()
             val bh = (l.hFt * STAND_PX).toInt()
@@ -663,28 +742,64 @@ class WorldArt {
         val sb = Bitmap.createBitmap(sw, sh, Bitmap.Config.RGB_565)
         val c = Canvas(sb)
         c.drawColor(Color.parseColor("#0A101C"))
-        c.scale(STAND_PX, STAND_PX)
-        fanRows(c, SIDE_SPAN, RAKE_H, home, away, 0.9f, rng)
+        if (long) {
+            // Seen end-on the rake is compressed along the rink, so the spectators are baked wide to come out round.
+            // Small, dim spectators (about 0.62x) so the crowd is a quiet mass of heads, not big coloured tiles.
+            val fs = 0.42f
+            c.scale(STAND_PX * LONG_STRETCH * fs, STAND_PX * fs)
+            fanRows(c, SIDE_SPAN / (LONG_STRETCH * fs), RAKE_H / fs, home, away, 0.5f, rng)
+            // Soften: down/up-sample once so the near rows read as a calm blurred mass (kills the moire).
+            val small = Bitmap.createScaledBitmap(sb, sw / 3, sh / 3, true)
+            val bc = Canvas(sb)
+            bc.drawBitmap(small, null, android.graphics.Rect(0, 0, sw, sh), Paint(Paint.FILTER_BITMAP_FLAG))
+            small.recycle()
+        } else {
+            c.scale(STAND_PX, STAND_PX)
+            fanRows(c, SIDE_SPAN, RAKE_H, home, away, 0.9f, rng)
+        }
+        sidePaint.colorFilter = android.graphics.LightingColorFilter(if (long) 0xFF8088A0.toInt() else 0xFFB4BACB.toInt(), 0x00000000)
+        mute = 0f
         sideStand?.recycle()
         sideStand = sb
         sidePaint.shader = BitmapShader(sb, Shader.TileMode.REPEAT, Shader.TileMode.CLAMP)
     }
 
-    /** Draws the tiers as billboards at their own depths, so they parallax against each other. */
+    /** Draws the tiers behind the far end as billboards that parallax against each other, then the raked bowl round the rink over them. */
     fun drawStands(canvas: Canvas, cam: Camera) {
+        // LONG view: far tiers first, the raked bowl over them. SIDE view: bowl first, tiers over it (original order).
+        if (cam.long) { drawTiers(canvas, cam); drawRake(canvas, cam) } else { drawRake(canvas, cam); drawTiers(canvas, cam) }
+    }
+
+    private fun drawTiers(canvas: Canvas, cam: Camera) {
+        // The tiers sit behind the far end (LONG view) or behind the far side boards (SIDE view).
+        val lng = cam.long
+        var bottom = if (lng) cam.py(Rink.HALF_L, 0f, 4.2f) else cam.py(0f, -Rink.HALF_W) - 4.2f * cam.ppfAt(0f, -Rink.HALF_W)
+        for (l in layers) {
+            val bmp = l.bmp ?: continue
+            val tx = if (lng) Rink.HALF_L + l.off else 0f
+            val ty = if (lng) 0f else -Rink.HALF_W - l.off
+            val f = cam.depthAt(tx, ty)
+            val wpx = l.wFt * cam.scale * f
+            val hpx = l.hFt * cam.scale * f
+            val cx = cam.px(tx, ty)
+            l.dst.set(cx - wpx / 2f, bottom - hpx, cx + wpx / 2f, bottom)
+            if (l.dst.bottom > 0f && l.dst.top < cam.screenH) canvas.drawBitmap(bmp, null, l.dst, standPaint)
+            bottom -= hpx - 1f
+        }
+    }
+
+    private fun drawRake(canvas: Canvas, cam: Camera) {
         val side = sideStand
         if (side != null) {
-            // A raked bowl of seats running round the whole rink, so the corners and ends are never empty.
+            // A raked bowl of seats running round the whole rink, so the corners and sides are never empty.
             val th = side.height.toFloat()
             for (i in 0 until perN) {
                 val ox = perX[i] + outX[i] * RAKE_D
                 val oy = perY[i] + outY[i] * RAKE_D
-                val kb = cam.ppf(perY[i])
-                val ko = cam.ppf(oy)
-                rakeVerts[i * 4] = cam.px(perX[i], perY[i])
-                rakeVerts[i * 4 + 1] = cam.py(perY[i]) - wallH * kb
-                rakeVerts[i * 4 + 2] = cam.px(ox, oy)
-                rakeVerts[i * 4 + 3] = cam.py(oy) - (wallH + RAKE_H) * ko
+                rakeVerts[i * 4] = cam.px(perX[i], perY[i], wallH)
+                rakeVerts[i * 4 + 1] = cam.py(perX[i], perY[i], wallH)
+                rakeVerts[i * 4 + 2] = cam.px(ox, oy, wallH + RAKE_H)
+                rakeVerts[i * 4 + 3] = cam.py(ox, oy, wallH + RAKE_H)
                 rakeTex[i * 4] = perU[i] * STAND_PX
                 rakeTex[i * 4 + 1] = th
                 rakeTex[i * 4 + 2] = perU[i] * STAND_PX
@@ -694,8 +809,9 @@ class WorldArt {
             val sw = cam.screenW + 4f
             val sh = cam.screenH + 4f
             for (i in 0 until perN - 1) {
-                val my = (perY[i] + perY[i + 1]) * 0.5f
-                if (my > cam.y + 30f) continue
+                if (cam.long) {
+                    if (!segmentFacesCamera(cam, i)) continue
+                } else if ((perY[i] + perY[i + 1]) * 0.5f > cam.y + 30f) continue
                 val j = i + 1
                 rakeBatch.quad(
                     rakeVerts[i * 4], rakeVerts[i * 4 + 1], rakeTex[i * 4], rakeTex[i * 4 + 1],
@@ -706,17 +822,6 @@ class WorldArt {
                 )
             }
             rakeBatch.draw(canvas, sidePaint)
-        }
-        var bottom = cam.py(-Rink.HALF_W) - 4.2f * cam.ppf(-Rink.HALF_W)
-        for (l in layers) {
-            val bmp = l.bmp ?: continue
-            val f = cam.depth(l.yb)
-            val wpx = l.wFt * cam.scale * f
-            val hpx = l.hFt * cam.scale * f
-            val cx = cam.px(0f, l.yb)
-            l.dst.set(cx - wpx / 2f, bottom - hpx, cx + wpx / 2f, bottom)
-            if (l.dst.bottom > 0f && l.dst.top < cam.screenH) canvas.drawBitmap(bmp, null, l.dst, standPaint)
-            bottom -= hpx - 1f
         }
     }
 
@@ -733,7 +838,7 @@ class WorldArt {
         for (i in flashLife.indices) {
             flashLife[i] -= dt
             if (flashLife[i] <= 0f && flashRng.nextFloat() < dt * 1.6f) {
-                flashLayer[i] = flashRng.nextInt(layers.size)
+                flashLayer[i] = flashRng.nextInt(layers.size)  // layers only changes at buildStands
                 flashU[i] = flashRng.nextFloat()
                 flashV[i] = 0.15f + flashRng.nextFloat() * 0.85f
                 flashLife[i] = 0.14f + flashRng.nextFloat() * 0.1f
@@ -744,7 +849,7 @@ class WorldArt {
     fun drawFlashes(canvas: Canvas) {
         for (i in flashLife.indices) {
             if (flashLife[i] <= 0f) continue
-            val d = layers[flashLayer[i]].dst
+            val d = layers[flashLayer[i].coerceAtMost(layers.size - 1)].dst
             if (d.width() <= 0f) continue
             val x = d.left + flashU[i] * d.width()
             val y = d.top + flashV[i] * d.height()

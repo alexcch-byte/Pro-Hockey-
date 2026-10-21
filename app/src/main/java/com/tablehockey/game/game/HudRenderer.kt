@@ -220,6 +220,9 @@ class HudRenderer(private val density: Float) {
         floatArrayOf(0f, 0.4f, 1f), Shader.TileMode.CLAMP)
     private var celebSub = ""
 
+    /** LONG view: score bug in the top-left corner, small top banner, translucent compact controls. */
+    var compact = false
+
     private fun layout(w: Int, h: Int) {
         sw = w.toFloat(); sh = h.toFloat()
         pGloss.shader = LinearGradient(0f, dp(8f), 0f, dp(8f) + dp(17f), Color.argb(70, 255, 255, 255), Color.argb(0, 255, 255, 255), Shader.TileMode.CLAMP)
@@ -564,6 +567,17 @@ class HudRenderer(private val density: Float) {
     // ---------------------------------------------------------------- scoreboard
 
     fun drawScoreboard(canvas: Canvas, w: World) {
+        if (compact) {
+            canvas.save()
+            val edge = dp(12f)
+            canvas.scale(0.78f, 0.78f, edge, 0f)
+            canvas.translate(edge - (sw - ((dp(78f) + dp(30f)) * 2f + dp(98f))) / 2f, 0f)
+            drawScoreboardInner(canvas, w)
+            canvas.restore()
+        } else drawScoreboardInner(canvas, w)
+    }
+
+    private fun drawScoreboardInner(canvas: Canvas, w: World) {
         val t = dp(8f); val h = dp(34f)
         val blockW = dp(78f); val scoreW = dp(30f); val centreW = dp(98f)
         val r = dp(9f)
@@ -767,10 +781,11 @@ class HudRenderer(private val density: Float) {
         val pw = max(tw, sw2) + dp(56f)
         val ph = if (sub != null) dp(64f) else dp(46f)
         val cxp = sw / 2f
-        val cyp = sh * 0.30f
+        val cyp = if (compact) sh * 0.066f else sh * 0.30f
         val off = (1f - inT) * (-(sw / 2f + pw / 2f))
         val a = (255 * out).toInt()
         canvas.save()
+        if (compact) canvas.scale(0.6f, 0.6f, cxp, cyp)
         canvas.translate(off, 0f)
         // skewed plate
         val sk = dp(14f)
@@ -799,7 +814,25 @@ class HudRenderer(private val density: Float) {
     }
 
     fun drawControls(canvas: Canvas, w: World, localTeam: Int, c: TouchControls) {
+        if (compact) {
+            // Translucent controls via a colour filter on the three paints (no offscreen layers: cheap on the Fire GPU).
+            pFill.colorFilter = ctlFilter; pStroke.colorFilter = ctlFilter; pTextC.colorFilter = ctlFilter
+            drawControlsInner(canvas, w, localTeam, c, true)
+            drawControlsInner(canvas, w, localTeam, c, false)
+            pFill.colorFilter = null; pStroke.colorFilter = null; pTextC.colorFilter = null
+        } else {
+            drawControlsInner(canvas, w, localTeam, c, true)
+            drawControlsInner(canvas, w, localTeam, c, false)
+        }
+    }
+
+    private val ctlFilter = android.graphics.ColorMatrixColorFilter(
+        android.graphics.ColorMatrix(floatArrayOf(1f, 0f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 0f, 1f, 0f, 0f, 0f, 0f, 0f, 175f / 255f, 0f)))
+
+    /** [stick] true draws the joystick, false the action buttons. */
+    private fun drawControlsInner(canvas: Canvas, w: World, localTeam: Int, c: TouchControls, stick: Boolean) {
         setPressed(c)
+        if (stick) {
         // joystick: translucent ring, as in the reference
         val jr = c.joyRadius
         val ax = if (c.joyActive) c.joyAnchorX else c.joyRestX
@@ -824,6 +857,8 @@ class HudRenderer(private val density: Float) {
         pStroke.color = Color.argb(if (c.joyActive) 230 else 140, 255, 255, 255)
         pStroke.strokeWidth = dp(2f)
         canvas.drawCircle(kx, ky, jr * 0.4f, pStroke)
+        return
+        }
 
         val controlled = if (localTeam >= 0) w.controlledSkater(localTeam) else null
         c.carrying = controlled != null && w.puck.carrier === controlled
@@ -943,14 +978,14 @@ class HudRenderer(private val density: Float) {
     // ---------------------------------------------------------------- overlays
 
     // Ground-pass projection through the perspective camera: world feet -> screen pixels.
-    // [h] lifts a point above the ice by that many feet (screen-up, scaled by the depth).
+    // [h] lifts a point above the ice by that many feet (true 3D, so it follows the camera pitch).
     private var pjx = 0f
     private var pjy = 0f
     private var gcam: Camera? = null
     private fun project(wx: Float, wy: Float, h: Float = 0f) {
         val c = gcam ?: return
-        pjx = c.px(wx, wy)
-        pjy = c.py(wy) - h * c.ppf(wy)
+        pjx = c.px(wx, wy, h)
+        pjy = c.py(wx, wy, h)
     }
 
     private fun pathMove(wx: Float, wy: Float, h: Float = 0f) { project(wx, wy, h); path.moveTo(pjx, pjy) }
@@ -964,8 +999,9 @@ class HudRenderer(private val density: Float) {
     private fun setGroundEllipse(wx: Float, wy: Float, rw: Float, h: Float = 0f) {
         val c = gcam ?: return
         project(wx, wy, h)
-        val rx = rw * c.ppf(wy)
-        ellipse.set(pjx - rx, pjy - rx * c.vk, pjx + rx, pjy + rx * c.vk)
+        val rx = rw * c.ppfAt(wx, wy)
+        val ry = rx * c.vkAt(wx, wy)
+        ellipse.set(pjx - rx, pjy - ry, pjx + rx, pjy + ry)
     }
 
     private val LAMP_H = 6f
@@ -1029,7 +1065,7 @@ class HudRenderer(private val density: Float) {
                 // the puck, briefly visible in the netting
                 val pa = (1f - t / 0.7f)
                 project(x0 + dir * (depth * 0.8f + bulge * 0.6f), 0f)
-                val pr = 0.55f * cam.ppf(0f)
+                val pr = 0.55f * cam.ppfAt(x0, 0f)
                 pFill.color = Color.argb((255 * pa).toInt(), 12, 12, 14)
                 canvas.drawCircle(pjx, pjy, pr, pFill)
                 pStroke.color = Color.argb((220 * pa).toInt(), 255, 255, 255)
@@ -1077,7 +1113,9 @@ class HudRenderer(private val density: Float) {
         val sc = celebScorer
         if (sc != null) {
             path.reset()
-            pathMove(sc.x - 0.6f, sc.y, 30f); pathLine(sc.x + 0.6f, sc.y, 30f); pathLine(sc.x + 2.4f, sc.y); pathLine(sc.x - 2.4f, sc.y); path.close()
+            if (cam.long) { pathMove(sc.x, sc.y - 0.6f, 30f); pathLine(sc.x, sc.y + 0.6f, 30f); pathLine(sc.x, sc.y + 2.4f); pathLine(sc.x, sc.y - 2.4f) }
+            else { pathMove(sc.x - 0.6f, sc.y, 30f); pathLine(sc.x + 0.6f, sc.y, 30f); pathLine(sc.x + 2.4f, sc.y); pathLine(sc.x - 2.4f, sc.y) }
+            path.close()
             pFill.color = Color.argb((30 * k).toInt(), 255, 244, 200)
             canvas.drawPath(path, pFill)
             setGroundEllipse(sc.x, sc.y, 2.6f * (1f + 0.08f * sin(t * 8f)))
@@ -1120,8 +1158,20 @@ class HudRenderer(private val density: Float) {
 
     /** Goal band + pregame splash + final trophy, over everything except the pause button. */
     fun drawOverlays(canvas: Canvas, w: World) {
-        drawGoalBand(canvas, w)
-        drawFaceoffBand(canvas, w)
+        if (compact) {
+            canvas.save()
+            canvas.scale(0.8f, 0.8f, sw * 0.2f, sh * 0.985f)
+            drawGoalBand(canvas, w)
+            canvas.restore()
+            // The faceoff lower third goes up over the far crowd, not onto the home net at the bottom.
+            canvas.save()
+            canvas.scale(0.7f, 0.7f, sw / 2f, 0f)
+            drawFaceoffBand(canvas, w)
+            canvas.restore()
+        } else {
+            drawGoalBand(canvas, w)
+            drawFaceoffBand(canvas, w)
+        }
         drawIntro(canvas, w)
         drawAnthemHint(canvas, w)
         drawFinal(canvas, w)
@@ -1213,7 +1263,7 @@ class HudRenderer(private val density: Float) {
         val x0 = sw * 0.20f
         val x1 = sw * 0.80f
         val bh = dp(56f)
-        val top = sh * 0.78f + (1f - k) * dp(30f)
+        val top = (if (compact) sh * 0.165f else sh * 0.78f) + (1f - k) * dp(30f)
         val blockW = dp(120f)
         val sk = dp(12f)
         val a = (255 * k).toInt()

@@ -31,6 +31,8 @@ class TouchControls(private val density: Float) {
     var hitX = 0f; var hitY = 0f; var hitR = 42f * density
     /** True while the controlled skater has the puck; the stick-flick auto-deke only fires then. */
     @Volatile var carrying = false
+    /** True in the end-on LONG view: the stick is rotated 90 degrees into world axes. Set once per match. */
+    @Volatile var longView = false
     @Volatile var shootDown = false
     @Volatile var passDown = false
     @Volatile var hitDown = false
@@ -61,12 +63,25 @@ class TouchControls(private val density: Float) {
         screenW = w
         screenH = h
         topExclusion = 64f * density
-        joyRadius = 64f * density
-        joyRestX = 120f * density
-        joyRestY = h - 120f * density
-        shootX = w - 95f * density; shootY = h - 95f * density
-        passX = w - 215f * density; passY = h - 80f * density
-        hitX = w - 105f * density; hitY = h - 215f * density
+        // LONG view: smaller controls tucked into the corners so more of the ice is visible.
+        val u = if (longView) 0.78f else 1f
+        val d = density * u
+        joyRadius = 64f * d
+        shootR = 50f * d; passR = 42f * d; hitR = 42f * d
+        if (longView) {
+            // Tucked tight into the corners (gaps between buttons unchanged) so the near boards stay clear.
+            joyRestX = 90f * d
+            joyRestY = h - 88f * d
+            shootX = w - 68f * d; shootY = h - 68f * d
+            passX = w - 172f * d; passY = h - 56f * d
+            hitX = w - 76f * d; hitY = h - 168f * d
+        } else {
+            joyRestX = 120f * d
+            joyRestY = h - 120f * d
+            shootX = w - 95f * d; shootY = h - 95f * d
+            passX = w - 215f * d; passY = h - 80f * d
+            hitX = w - 105f * d; hitY = h - 215f * d
+        }
     }
 
     /** 1 right after a stick-flick deke fires, fading to 0 (for a brief joystick-ring flash). */
@@ -220,7 +235,8 @@ class TouchControls(private val density: Float) {
             if (histN < HIST) histN++
         }
 
-        synchronized(lock) { input.moveX = mx; input.moveY = my }
+        // LONG view: screen-up is world +x and screen-right is world +y, for every team. SIDE view: screen axes are world axes.
+        synchronized(lock) { if (longView) { input.moveX = -my; input.moveY = mx } else { input.moveX = mx; input.moveY = my } }
     }
 
     private fun onUp(id: Int) {

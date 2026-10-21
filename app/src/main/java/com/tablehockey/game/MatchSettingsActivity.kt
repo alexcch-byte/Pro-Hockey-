@@ -59,6 +59,11 @@ class MatchSettingsActivity : AppCompatActivity() {
         } else {
             radioArena.check(R.id.arenaIndoor)
         }
+        val radioView = findViewById<RadioGroup>(R.id.radioView)
+        radioView.check(if (Prefs.viewMode(this) == com.tablehockey.game.game.ViewMode.SIDE) R.id.viewSide else R.id.viewLong)
+        radioView.setOnCheckedChangeListener { _, id ->
+            Prefs.setViewMode(this, if (id == R.id.viewSide) com.tablehockey.game.game.ViewMode.SIDE else com.tablehockey.game.game.ViewMode.LONG)
+        }
         AudioSliders.bind(findViewById(R.id.audioSliders), this)
         val checkAnthem = findViewById<android.widget.CheckBox>(R.id.checkAnthem)
         checkAnthem.isChecked = Prefs.anthemEnabled(this)

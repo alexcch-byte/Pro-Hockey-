@@ -33,6 +33,16 @@ object Prefs {
     private const val KEY_ANTHEM = "anthem"
 
     private const val KEY_OFFSIDES = "offsides"
+    private const val KEY_VIEW = "view_mode"
+
+    /** Camera view: LONG (end-on, home at the bottom, default) or SIDE (original side-on). Local to each device. */
+    fun viewMode(ctx: Context): com.tablehockey.game.game.ViewMode =
+        if (prefs(ctx).getString(KEY_VIEW, null) == com.tablehockey.game.game.ViewMode.SIDE.name)
+            com.tablehockey.game.game.ViewMode.SIDE else com.tablehockey.game.game.ViewMode.LONG
+
+    fun setViewMode(ctx: Context, m: com.tablehockey.game.game.ViewMode) {
+        prefs(ctx).edit().putString(KEY_VIEW, m.name).apply()
+    }
 
     /** Offside rule (default off, arcade-style). Read by the host when a match starts. */
     fun offsideEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean(KEY_OFFSIDES, false)

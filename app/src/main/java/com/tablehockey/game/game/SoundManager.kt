@@ -128,6 +128,7 @@ class SoundManager(context: Context) {
     @Volatile private var puckSpeed = 0f
     @Volatile private var outdoor = false
     private var camX = 0f
+    private var longView = true
     private var halfViewFt = 60f
     private var lastShotPower = 0.5f
 
@@ -164,7 +165,7 @@ class SoundManager(context: Context) {
 
     private fun jitter(amount: Float) = 1f + (rng.nextFloat() * 2f - 1f) * amount
 
-    private fun panFor(x: Float) = ((x - camX) / halfViewFt).coerceIn(-1f, 1f) * STEREO_WIDTH
+    private fun panFor(lateral: Float) = ((lateral - camX) / halfViewFt).coerceIn(-1f, 1f) * STEREO_WIDTH
 
     /** The arena's reverb after a big indoor impact; nothing bounces back outdoors. */
     private fun tail(bright: Boolean, level: Float) {
@@ -290,12 +291,20 @@ class SoundManager(context: Context) {
      */
     fun updateMix(w: World, cam: Camera, dt: Float) {
         val p = w.puck
-        camX = cam.x
-        halfViewFt = max(1f, cam.screenW / cam.scale / 2f)
+        longView = cam.long
+        if (longView) {
+            // End-on view: screen left/right is world y, centred on 0.
+            camX = cam.y
+            halfViewFt = max(1f, Camera.BOTTOM_WIDTH_FT / 2f)
+        } else {
+            camX = cam.x
+            halfViewFt = max(1f, cam.screenW / cam.scale / 2f)
+        }
         puckSpeed = p.speed
         // Mostly where the puck is on screen, plus a little of where it is on the rink,
         // so play near either net leans clearly to that side.
-        pan = (((p.x - camX) / halfViewFt) * 0.8f + p.x / Rink.HALF_L * 0.2f).coerceIn(-1f, 1f) * STEREO_WIDTH
+        val along = if (longView) p.y else p.x
+        pan = (((along - camX) / halfViewFt) * 0.8f + along / (if (longView) Rink.HALF_W else Rink.HALF_L) * 0.2f).coerceIn(-1f, 1f) * STEREO_WIDTH
         outdoor = w.arenaType == ArenaType.WINTER_POND
 
         var target = when (w.phase) {
@@ -375,10 +384,10 @@ class SoundManager(context: Context) {
         windStream = 0
     }
 
-    /** Short skate scrape for a stride by the skater at world x. */
-    fun playSkate(intensity: Float, x: Float) {
+    /** Short skate scrape for a stride; [screenAxisPos] is the skater's world position along the screen's horizontal axis (x in SIDE view, y in LONG view). */
+    fun playSkate(intensity: Float, screenAxisPos: Float) {
         val v = (0.12f + 0.3f * intensity).coerceIn(0.1f, 0.45f)
-        play(skates.next(), v, jitter(0.06f), 0, panFor(x))
+        play(skates.next(), v, jitter(0.06f), 0, panFor(screenAxisPos))
     }
 
     fun playResult(won: Boolean?) {

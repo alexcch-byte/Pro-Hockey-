@@ -40,6 +40,9 @@
     <string name="audio_music">Music</string>
     <string name="audio_off">Off</string>
     <string name="settings_arena">Arena</string>
+    <string name="settings_view">View</string>
+    <string name="view_long">Long view</string>
+    <string name="view_side">Side view</string>
     <string name="arena_indoor">Indoor Stadium</string>
     <string name="arena_winter_pond">Winter Pond</string>
     <string name="settings_start">Drop the Puck</string>

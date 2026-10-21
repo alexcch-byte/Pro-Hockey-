@@ -60,13 +60,15 @@ adb: `C:/Users/strid/AppData/Local/Android/Sdk/platform-tools/adb.exe`
     penalty-kill box spots, carrier seam pass (`seamPass`), and goalie lead (`goalieLead`).
   - `PhysicsEngine`: skater movement/collisions, puck glide, boards, posts, nets. Goals use a swept
     test (must cross the goal line from the front between the posts); carried pucks are kept out of nets.
-  - `Camera` is a perspective projection (homography): `px(wx, wy)`, `py(wy)`, `depth(wy)`,
-    `ppf(wy)` (screen px per foot at a depth); far is smaller, side boards converge. There is no
-    canvas transform for the world any more: everything is projected per item.
+  - `Camera` projects through `px(wx, wy, z)`, `py(wx, wy, z)`, `ppfAt(wx, wy)` (screen px per foot), `vkAt`; far is smaller.
+    Two view modes (`ViewMode`, saved as `Prefs.viewMode`, radio group in Match Settings, read once in `GameView.configure`,
+    local to each device): LONG (default, end-on pinhole camera looking down the rink: world +x is screen up, +y is screen right,
+    home always at the bottom attacking up) and SIDE (original homography: +x screen right). The world/sim is identical in both.
+    Everything is projected per item (no canvas transform); view-layer code branches on `camera.long`.
   - `Renderer` draws: stands (`WorldArt.drawStands`, three billboard tiers with parallax + flashes),
     the baked top-down rink bitmap warped through the camera (`WorldArt.drawWarped`, one mesh call),
     the boards/glass/ad wall as one textured `drawVertices` mesh (`WorldArt.drawWalls`), then ground
-    effects, then players/puck/referee sorted by y, then HUD/controls in screen space. Avoid
+    effects, then players/puck/referee sorted by depth, then HUD/controls in screen space. Avoid
     allocations in draw paths; paints and paths are reused.
   - `CharacterArt` builds upright skater/goalie/referee billboards procedurally (3D capsule parts,
     16 facings x 8 poses, goalie 4 stances), lazily, at <= 13 px/ft. The jersey number is drawn per
@@ -76,7 +78,8 @@ adb: `C:/Users/strid/AppData/Local/Android/Sdk/platform-tools/adb.exe`
     software `lockCanvas()` (a RenderThread abort was seen during the WiFi join flow). The fps log
     line splits frame time into update / lock / record / post; a large "post" means GPU-bound.
   - `TouchControls`: floating joystick (left half) + SHOOT / PASS / HIT buttons. Without the puck,
-    SHOOT = poke check and PASS = switch to nearest skater; SHOOT charges while held.
+    SHOOT = poke check and PASS = switch to nearest skater; SHOOT charges while held. `longView` rotates the stick into world
+    axes (moveX = -screen dy, moveY = screen dx) for every team; SIDE view passes screen axes straight through.
   - `GameView`: game thread, host vs client update paths, camera follow, sound/music hooks.
   - `SoundManager` (SoundPool effects, jingles, organ, skate scrapes) and `MusicManager`
     (MediaPlayer loops: menu theme and in-game theme, ducking under jingles, user volume).

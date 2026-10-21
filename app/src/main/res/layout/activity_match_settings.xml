@@ -143,6 +143,19 @@
             android:padding="14dp"
             android:layout_marginTop="12dp">
 
+            <TextView style="@style/SectionLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/settings_view" />
+
+            <RadioGroup
+                android:id="@+id/radioView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="6dp"
+                android:layout_marginBottom="10dp">
+                <RadioButton android:id="@+id/viewLong" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/view_long" android:textColor="@color/text_primary" android:checked="true" />
+                <RadioButton android:id="@+id/viewSide" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/view_side" android:textColor="@color/text_primary" />
+            </RadioGroup>
+
             <TextView style="@style/SectionLabel" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/settings_arena" />
 
             <RadioGroup
