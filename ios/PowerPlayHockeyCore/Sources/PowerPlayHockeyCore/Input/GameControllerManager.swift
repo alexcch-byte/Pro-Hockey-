@@ -80,8 +80,8 @@ public final class GameControllerManager {
     private func configureController(_ controller: GCController) {
         // Prefer extended gamepad layout (Xbox, DualShock/DualSense, MFi)
         if let extended = controller.extendedGamepad {
-            extended.leftThumbstick.deadzone = 0.15
-            extended.rightThumbstick.deadzone = 0.2
+            // GCControllerDirectionPad has no deadzone property; deadzones are applied when reading input.
+            _ = extended
         } else if let micro = controller.microGamepad {
             micro.allowsRotation = true
         }
