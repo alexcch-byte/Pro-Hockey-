@@ -27,6 +27,7 @@ enum Prefs {
     }
 
     static func soundEnabled() -> Bool { sfxVolume() > 0 }
+    static func musicEnabled() -> Bool { musicVolume() > 0 }
     private static let keyArena = "arena_type"
     private static let keyLeague = "league"
     private static let keyAnthem = "anthem"

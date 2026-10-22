@@ -119,6 +119,8 @@ final class GPath {
         cgPath.addQuadCurve(to: CGPoint(x: x, y: y), control: CGPoint(x: cx, y: cy))
     }
 
+    func close() { cgPath.closeSubpath() }
+
     func addRoundRect(_ rect: CGRect, _ rx: CGFloat, _ ry: CGFloat) {
         cgPath.addRoundedRect(in: rect, cornerWidth: max(rx, 0.0001), cornerHeight: max(ry, 0.0001))
     }

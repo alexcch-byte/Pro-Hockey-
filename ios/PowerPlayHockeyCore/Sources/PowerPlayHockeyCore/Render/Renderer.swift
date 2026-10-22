@@ -291,9 +291,9 @@ final class Renderer {
 
     // Puck comet trail
     private static let TRAIL_POINTS = 8
-    private var puckTrailX = [CGFloat](repeating: 0, count: TRAIL_POINTS)
-    private var puckTrailY = [CGFloat](repeating: 0, count: TRAIL_POINTS)
-    private var puckTrailHead = 0
+    var puckTrailX = [CGFloat](repeating: 0, count: TRAIL_POINTS)
+    var puckTrailY = [CGFloat](repeating: 0, count: TRAIL_POINTS)
+    var puckTrailHead = 0
 
     init(density: Float) {
         self.density = CGFloat(density)
