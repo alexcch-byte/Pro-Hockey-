@@ -58,6 +58,15 @@ enum Prefs {
     static func setAnthemEnabled(_ on: Bool) {
         UserDefaults.standard.set(on, forKey: keyAnthem)
     }
+    /// Haptic feedback (default on).
+    static func vibrationEnabled() -> Bool {
+        UserDefaults.standard.object(forKey: "vibration") as? Bool ?? true
+    }
+
+    static func setVibrationEnabled(_ on: Bool) {
+        UserDefaults.standard.set(on, forKey: "vibration")
+    }
+
     private static let keyTournament = "tournament_state"
 
     static func arenaType() -> ArenaType {

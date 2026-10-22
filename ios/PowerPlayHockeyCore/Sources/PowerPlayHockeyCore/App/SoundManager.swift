@@ -204,9 +204,9 @@ public final class SoundManager {
 
     public func playResult(won: Bool?) {
         switch won {
-        case true: playSound("jingle_win", level: 0.95)
-        case false: playSound("jingle_lose", level: 0.9)
-        case nil: playSound("jingle_period", level: 0.85)
+        case .some(true): playSound("jingle_win", level: 0.95)
+        case .some(false): playSound("jingle_lose", level: 0.9)
+        case .none: playSound("jingle_period", level: 0.85)
         }
     }
 
