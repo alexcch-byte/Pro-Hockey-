@@ -4,14 +4,14 @@ import SwiftUI
 
 /// 8-Team single-elimination playoff bracket tournament view with persistent state.
 public struct TournamentView: View {
-    public var onPlayMatch: (MatchConfig) -> Void
+    var onPlayMatch: (MatchConfig) -> Void
     public var onBack: () -> Void
 
     @State private var state: TournamentState?
     @State private var selectedTeamIdx: Int = TeamInfo.DEFAULT_HOME
     @State private var showingNewDialog = false
 
-    public init(onPlayMatch: @escaping (MatchConfig) -> Void, onBack: @escaping () -> Void) {
+    init(onPlayMatch: @escaping (MatchConfig) -> Void, onBack: @escaping () -> Void) {
         self.onPlayMatch = onPlayMatch
         self.onBack = onBack
         // The club list (and so the whole bracket) follows the league chosen in Match Setup.

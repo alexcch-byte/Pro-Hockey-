@@ -92,7 +92,7 @@ public final class GameControllerManager {
     /// - Parameters:
     ///   - dt: Frame delta time in seconds
     ///   - input: The current local PlayerInput snapshot (will be merged with gamepad state)
-    public func update(dt: Float, into input: PlayerInput) {
+    func update(dt: Float, into input: PlayerInput) {
         #if canImport(GameController)
         guard let controller = currentController else { return }
 

@@ -10,7 +10,7 @@ import QuartzCore
 #if canImport(UIKit)
 /// Interactive hockey game view running the authoritative simulation and renderer loop.
 public final class GameView: UIView {
-    public var config: MatchConfig
+    var config: MatchConfig
     public var onPause: (() -> Void)?
     public var onGameOver: ((_ winnerTeam: Int, _ score0: Int, _ score1: Int) -> Void)?
 
@@ -32,7 +32,7 @@ public final class GameView: UIView {
     private var anthemPlaying = false
 
     /// `allowAnthem` is false for restarts / rematches from the pause or game-over menus (fresh match starts only).
-    public init(frame: CGRect, config: MatchConfig = .makeDefault(), allowAnthem: Bool = true) {
+    init(frame: CGRect, config: MatchConfig = .makeDefault(), allowAnthem: Bool = true) {
         self.config = config
         let screenScale = Float(UIScreen.main.scale)
         self.controls = TouchControls(density: screenScale)

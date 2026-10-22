@@ -33,7 +33,7 @@ public enum NetCodec {
         return serialize(dict)
     }
 
-    public static func inputJson(_ i: PlayerInput) -> String {
+    static func inputJson(_ i: PlayerInput) -> String {
         var dict: [String: Any] = [
             "t": "in",
             "mx": Double(i.moveX),
@@ -49,7 +49,7 @@ public enum NetCodec {
         return serialize(dict)
     }
 
-    public static func applyInput(_ obj: [String: Any], into dst: PlayerInput) {
+    static func applyInput(_ obj: [String: Any], into dst: PlayerInput) {
         dst.moveX = Float(obj["mx"] as? Double ?? 0.0)
         dst.moveY = Float(obj["my"] as? Double ?? 0.0)
         dst.shootHeld = obj["sh"] as? Bool ?? false
@@ -67,7 +67,7 @@ public enum NetCodec {
         }
     }
 
-    public static func stateJson(_ w: World) -> String {
+    static func stateJson(_ w: World) -> String {
         var o: [String: Any] = [:]
         o["t"] = "st"
         o["ph"] = phaseIndex(w.phase)
@@ -119,7 +119,7 @@ public enum NetCodec {
         return serialize(o)
     }
 
-    public static func applyState(_ obj: [String: Any], into w: World, events: inout [GameEvent]) {
+    static func applyState(_ obj: [String: Any], into w: World, events: inout [GameEvent]) {
         if let phIdx = obj["ph"] as? Int, phIdx >= 0 && phIdx < allPhases.count {
             w.phase = allPhases[phIdx]
         }

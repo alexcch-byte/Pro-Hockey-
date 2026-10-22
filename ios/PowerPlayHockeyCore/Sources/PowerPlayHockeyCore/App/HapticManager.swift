@@ -50,7 +50,7 @@ public final class HapticManager {
     #endif
 
     /// Trigger tactile feedback for in-game physics & event notifications.
-    public func handle(_ event: GameEvent) {
+    func handle(_ event: GameEvent) {
         guard isEnabled else { return }
 
         #if canImport(UIKit)

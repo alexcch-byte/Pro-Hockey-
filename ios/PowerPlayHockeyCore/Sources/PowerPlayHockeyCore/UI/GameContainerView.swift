@@ -5,7 +5,7 @@ import UIKit
 
 /// SwiftUI wrapper for GameView with pause and game over overlays.
 public struct GameContainerView: View {
-    public let config: MatchConfig
+    let config: MatchConfig
     public var onDismiss: () -> Void
 
     @State private var isPaused = false
@@ -17,7 +17,7 @@ public struct GameContainerView: View {
     /// The anthem plays only for the first game of a session; restarts and rematches skip it.
     @State private var allowAnthem = true
 
-    public init(config: MatchConfig, onDismiss: @escaping () -> Void) {
+    init(config: MatchConfig, onDismiss: @escaping () -> Void) {
         self.config = config
         self.onDismiss = onDismiss
     }

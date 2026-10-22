@@ -2,7 +2,7 @@ import Foundation
 
 private let CODE_ALPHABET = Array("ABCDEFGHJKMNPQRSTUVWXYZ23456789")
 
-private func randomRoomCode(length: Int = 5) -> String {
+func randomRoomCode(length: Int = 5) -> String {
     String((0..<length).compactMap { _ in CODE_ALPHABET.randomElement() })
 }
 
@@ -26,8 +26,8 @@ public final class RelayHost: HostLink {
     private var webSocketTask: URLSessionWebSocketTask?
     private var isRunning = false
 
-    public init(roomCode: String = randomRoomCode()) {
-        self.roomCode = roomCode
+    public init(roomCode: String? = nil) {
+        self.roomCode = roomCode ?? randomRoomCode()
     }
 
     public func connect() {

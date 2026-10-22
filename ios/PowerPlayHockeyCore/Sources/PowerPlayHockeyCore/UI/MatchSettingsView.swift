@@ -4,8 +4,8 @@ import SwiftUI
 
 /// Settings and match configuration screen for Quick Match and Shootout modes.
 public struct MatchSettingsView: View {
-    public var defaultMode: GameMode
-    public var onStartGame: (MatchConfig) -> Void
+    var defaultMode: GameMode
+    var onStartGame: (MatchConfig) -> Void
     public var onBack: () -> Void
 
     @State private var selectedMode: GameMode
@@ -20,7 +20,7 @@ public struct MatchSettingsView: View {
     @State private var anthemOn: Bool = Prefs.anthemEnabled()
     @State private var offsideOn: Bool = Prefs.offsideEnabled()
 
-    public init(
+    init(
         defaultMode: GameMode = .singlePlayer,
         onStartGame: @escaping (MatchConfig) -> Void,
         onBack: @escaping () -> Void

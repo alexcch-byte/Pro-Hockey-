@@ -101,7 +101,7 @@ public final class SoundManager {
         1.0 + (rng.nextFloat() * 2.0 - 1.0) * amount
     }
 
-    public func handle(_ event: GameEvent, team: Int = -1, localTeam: Int = -1) {
+    func handle(_ event: GameEvent, team: Int = -1, localTeam: Int = -1) {
         guard enabled else { return }
         switch event {
         case .shot:
