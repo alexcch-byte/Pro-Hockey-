@@ -1,0 +1,85 @@
+name: iOS Build
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Toolchain info
+        run: |
+          xcodebuild -version
+          swift --version
+          xcrun simctl list runtimes | head -20
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: ios
+        run: |
+          xcodegen generate
+          xcodebuild -list -project PowerPlayHockey.xcodeproj
+
+      - name: Build for iOS Simulator (no signing)
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project PowerPlayHockey.xcodeproj \
+            -scheme PowerPlayHockey \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build/sim \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee build-sim.log | (xcbeautify || cat)
+
+      - name: Build unsigned device .ipa
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project PowerPlayHockey.xcodeproj \
+            -scheme PowerPlayHockey \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/device \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            | tee build-device.log | (xcbeautify || cat)
+          mkdir -p ipa/Payload
+          cp -R build/device/Build/Products/Release-iphoneos/PowerPlayHockey.app ipa/Payload/
+          (cd ipa && zip -qr PowerPlayHockey-unsigned.ipa Payload)
+          ls -la ipa
+
+      - name: Upload unsigned .ipa
+        uses: actions/upload-artifact@v4
+        with:
+          name: PowerPlayHockey-unsigned-ipa
+          path: ios/ipa/PowerPlayHockey-unsigned.ipa
+
+      - name: Upload simulator .app
+        uses: actions/upload-artifact@v4
+        with:
+          name: PowerPlayHockey-simulator-app
+          path: ios/build/sim/Build/Products/Debug-iphonesimulator/PowerPlayHockey.app
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: ios/build-*.log
